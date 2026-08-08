@@ -1,0 +1,33 @@
+# -- Do not commit these to GitHub --
+
+# Big installers / downloads (GitHub rejects files > 100 MB)
+GitHubDesktop-arm64.zip
+python-3.13.15-amd64.exe
+
+# Built packages (produced by builds, downloaded from server)
+MarkoPoloExplorer.dmg
+MarkoPoloExplorer.zip
+MarkoPoloExplorer.exe
+MAC.zip
+WINDOWS.zip
+
+# Old C-version build (deprecated)
+WINDOWS_EXE/
+
+# Junk / temp / logs
+GARBAGE/
+test_expand/
+app_crash_log.txt
+app_stderr.log
+app_stdout.log
+*.log
+.DS_Store
+build/
+dist/
+*.spec
+__pycache__/
+*.pyc
+
+# Session files
+marko_polo_session.json
+roar_session.json

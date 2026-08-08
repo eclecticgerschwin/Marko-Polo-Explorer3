@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Marko Polo Explorer — Next-Gen Dual-Panel File & Media Manager</title>
+  <meta name="description" content="Marko Polo Explorer is a native dual-pane file explorer and camera roll manager for macOS and Windows, featuring iPhone/Android photo imports, Windows 11 rubberband drag selection, and EXIF GPS geocoding.">
+  <meta property="og:title" content="Marko Polo Explorer — Dual-Pane File & Media Explorer">
+  <meta property="og:description" content="Dual-pane file explorer for macOS & Windows with iPhone/Android camera roll sync and Windows 11 drag selection.">
+  <link rel="icon" type="image/png" href="assets/markopolo.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <!-- Background Glow Effects -->
+  <div class="glow-bg">
+    <div class="glow-orb orb-1"></div>
+    <div class="glow-orb orb-2"></div>
+    <div class="glow-orb orb-3"></div>
+  </div>
+
+  <!-- Navigation Bar -->
+  <header class="navbar">
+    <div class="nav-container">
+      <a href="#" class="logo-group">
+        <img src="assets/markopolo.png" alt="Marko Polo Explorer Logo" class="logo-img">
+        <span class="brand-title">Marko Polo Explorer</span>
+      </a>
+
+      <!-- Hamburger Toggle Button for Mobile -->
+      <button class="mobile-nav-toggle" id="mobileNavToggle" aria-label="Toggle navigation menu">
+        <span class="hamburger-bar"></span>
+        <span class="hamburger-bar"></span>
+        <span class="hamburger-bar"></span>
+      </button>
+
+      <ul class="nav-links" id="navLinks">
+        <li><a href="#features">Features</a></li>
+        <li><a href="#instructions">Instructions</a></li>
+        <li><a href="#download">Download</a></li>
+        <li><a href="#contact">Contact</a></li>
+        <li class="mobile-only-cta">
+          <a href="#download" class="btn-nav-download">📥 Get App</a>
+        </li>
+      </ul>
+
+      <div class="nav-actions">
+        <a href="#download" class="btn-nav-download">📥 Get App</a>
+      </div>
+    </div>
+  </header>
+
+  <!-- Hero Section -->
+  <section class="hero-section">
+    <h1 class="hero-title" style="margin-top:20px;">
+      The Ultimate <span>Dual-Panel Explorer</span><br>For macOS & Windows
+    </h1>
+
+    <p class="hero-subtitle">
+      Experience lightning-fast file management with native iPhone & Android camera roll sync, 
+      Windows 11 translucent drag selection, integrated media player, and EXIF GPS geocoding.
+    </p>
+
+    <div class="hero-cta-group">
+      <a href="MarkoPoloExplorer.dmg" download="MarkoPoloExplorer.dmg" class="btn-primary" id="macDmgDownloadBtn">
+        <span>🍎</span> macOS Installer (.dmg)
+      </a>
+      <a href="MarkoPoloExplorer.zip" download="MarkoPoloExplorer.zip" class="btn-primary" id="winZipDownloadBtn" style="background: linear-gradient(135deg, #0078d4, #00b4d8);">
+        <span>🪟</span> Windows Package (.zip)
+      </a>
+      <a href="MarkoPoloExplorer.exe" download="MarkoPoloExplorer.exe" class="btn-primary" id="winExeDownloadBtn" style="background: linear-gradient(135deg, #00b4d8, #30d158);">
+        <span>⚡</span> Windows Standalone (.exe)
+      </a>
+      <a href="#instructions" class="btn-secondary">
+        <span>📖</span> Setup Guide
+      </a>
+    </div>
+
+    <!-- App Screenshot Showcase -->
+    <div class="app-mockup-wrapper" style="margin-top: 40px;">
+      <div class="app-mockup" style="border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 1px solid var(--border-color);">
+        <img src="assets/app_screenshot.png" alt="Marko Polo Explorer App Screenshot" style="width:100%; height:auto; display:block;" id="appScreenshotImg">
+      </div>
+    </div>
+  </section>
+
+  <!-- Features Section -->
+  <section class="features-section" id="features">
+    <div class="section-header">
+      <div class="section-subtitle">Features & Capabilities</div>
+      <h2 class="section-title">Built for Speed, Power & Simplicity</h2>
+    </div>
+
+    <div class="features-grid">
+      <!-- Feature 1 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">⚡</div>
+        <h3 class="feature-title">Total Commander Dual-Pane</h3>
+        <p class="feature-desc">
+          Symmetrical left and right file panels for effortless side-by-side file browsing, 
+          one-click transfer, and quick keyboard navigation.
+        </p>
+      </div>
+
+      <!-- Feature 2 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">📱</div>
+        <h3 class="feature-title">iPhone & Android Sync</h3>
+        <p class="feature-desc">
+          Native integration with Apple's ImageCaptureCore framework and Android ADB for direct camera roll scanning, 
+          live preview, and high-speed batch media downloading.
+        </p>
+      </div>
+
+      <!-- Feature 3 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">🟦</div>
+        <h3 class="feature-title">Windows 11 Blue Drag Selection</h3>
+        <p class="feature-desc">
+          Pixel-perfect translucent blue marquee selection square across both Grid View and List / Details View. 
+          Multi-select items seamlessly with atomic accuracy.
+        </p>
+      </div>
+
+      <!-- Feature 4 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">🎬</div>
+        <h3 class="feature-title">Media Player & EXIF GPS</h3>
+        <p class="feature-desc">
+          Built-in video player with timeline seek & volume controls, high-res image previews, 
+          and reverse GPS geocoding to display photo location names automatically.
+        </p>
+      </div>
+
+      <!-- Feature 5 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">🔄</div>
+        <h3 class="feature-title">Over-the-Air Live Auto-Updater</h3>
+        <p class="feature-desc">
+          Automatic background check against server release manifests (`version.json`) with 1-click silent background download and update installation.
+        </p>
+      </div>
+
+      <!-- Feature 6 -->
+      <div class="feature-card">
+        <div class="feature-icon-box">🎨</div>
+        <h3 class="feature-title">Custom Themes & Controls</h3>
+        <p class="feature-desc">
+          Fluid Dark Mode and Light Mode switching, interactive thumbnail size sliders, quick filter presets (Photos, Videos, RAW), and full context menus.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Instructions & Setup Section -->
+  <section class="instructions-section" id="instructions">
+    <div class="section-header">
+      <div class="section-subtitle">User Guide & Setup</div>
+      <h2 class="section-title">How to Install and Use Marko Polo Explorer</h2>
+    </div>
+
+    <!-- OS Selector Bar -->
+    <div class="os-selector-bar">
+      <button id="tabMacBtn" class="os-tab-btn active" onclick="switchOsTab('mac')">
+        <span>🍎</span> macOS Instructions
+      </button>
+      <button id="tabWinBtn" class="os-tab-btn" onclick="switchOsTab('win')">
+        <span>🪟</span> Windows Instructions
+      </button>
+    </div>
+
+    <!-- macOS Instructions Container -->
+    <div id="osContentMac" class="steps-container">
+      <!-- Step 1 -->
+      <div class="step-card">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3 class="step-title">Download & Open DMG Installer</h3>
+          <p class="step-desc">
+            Download <strong><code>MarkoPoloExplorer.dmg</code></strong> (or <code>MAC.zip</code>). Double-click the <code>.dmg</code> disk image file to open the installation window.
+          </p>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step-card">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3 class="step-title">Drag to /Applications Folder</h3>
+          <p class="step-desc">
+            In the installer window, drag the <strong>Marko Polo Explorer v1.0.app</strong> icon directly into your <strong><code>Applications</code></strong> folder shortcut.
+          </p>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step-card">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3 class="step-title">macOS Privacy & Security Authorization</h3>
+          <p class="step-desc">
+            On first launch, if macOS Gatekeeper displays a security prompt:
+          </p>
+          <ul style="margin:8px 0 12px 20px; font-size:13px; color:var(--text-muted);">
+            <li>Go to <strong>System Settings ➔ Privacy & Security</strong>.</li>
+            <li>Scroll down to the <em>Security</em> section and click <strong>"Open Anyway"</strong>.</li>
+            <li>Alternatively, right-click (or Control-click) the app icon in Finder and select <strong>Open</strong>.</li>
+          </ul>
+          <div class="code-block" style="margin-bottom:10px;">
+            <span id="codeGatekeeper">xattr -cr "Marko Polo Explorer v1.0.app"</span>
+            <button class="copy-btn" onclick="copyCode(this, 'codeGatekeeper')">Copy Terminal Command</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step-card">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3 class="step-title">Connect iPhone & Start Exploring</h3>
+          <p class="step-desc">
+            Connect your iPhone via Lightning/USB cable and tap "Trust This Computer". Select your iPhone from the left panel dropdown to browse photo libraries!<br>
+            Click & drag anywhere in empty space to draw the translucent blue marquee square for multi-file selection.
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Windows Instructions Container -->
+    <div id="osContentWin" class="steps-container" style="display:none;">
+      <!-- Step 1 -->
+      <div class="step-card">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3 class="step-title">Download & Extract MarkoPoloExplorer.zip</h3>
+          <p class="step-desc">
+            Download <strong><code>MarkoPoloExplorer.zip</code></strong> and extract the ZIP contents to a folder (right-click ➔ <em>Extract All...</em>). You will see <strong><code>Install Marko Polo Explorer.bat</code></strong> at the top level.
+          </p>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step-card">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3 class="step-title">Run Install Marko Polo Explorer.bat</h3>
+          <p class="step-desc">
+            Double-click <strong><code>Install Marko Polo Explorer.bat</code></strong> to launch the automated setup. It automatically configures dependencies in AppData, creates a <strong>Desktop Shortcut</strong>, and launches Marko Polo Explorer.
+          </p>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step-card">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3 class="step-title">Standalone Windows App — No Python Required</h3>
+          <p class="step-desc">
+            Marko Polo Explorer for Windows is a standalone 64-bit executable — the full app in one file. No Python, no installer, no dependencies.
+          </p>
+          <div style="background:rgba(0,120,212,0.1); border-left:3px solid #0078d4; padding:10px 14px; border-radius:6px; margin:10px 0; font-size:13px; color:var(--text-main);">
+            ⚡ <strong>Zero Dependencies:</strong><br>
+            Just download <a href="MarkoPoloExplorer.exe" download="MarkoPoloExplorer.exe" style="color:#30c7ff; font-weight:700;">MarkoPoloExplorer.exe</a> and double-click it — no extraction, no installation. Built-in auto-updater keeps it current.
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step-card">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3 class="step-title">Windows 11 Blue Drag Selection & Media Controls</h3>
+          <p class="step-desc">
+            Enjoy native Windows 11 translucent blue drag selection in both Grid and List Views, circular transfer progress ring, light/dark mode, and QuickLook preview window controls (Minimize, Maximize, and Fullscreen).
+          </p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Download Section -->
+  <section class="download-section" id="download">
+    <div class="download-box">
+      <h2 style="font-size:36px; font-weight:800; margin-bottom:12px;">Get Marko Polo Explorer Now</h2>
+      <p style="color:var(--text-muted); font-size:16px;">Download the latest version for your operating system.</p>
+
+      <div class="dl-grid">
+        <div class="dl-card">
+          <div class="dl-icon">🍎</div>
+          <div class="dl-platform">macOS Installer (.dmg)</div>
+          <div class="dl-meta">Drag to /Applications • macOS Monterey to Sequoia</div>
+          <a href="MarkoPoloExplorer.dmg" download="MarkoPoloExplorer.dmg" class="btn-primary" style="width:100%; justify-content:center; margin-bottom:12px;">
+            Download MarkoPoloExplorer.dmg
+          </a>
+          <div style="font-size:11px; color:var(--text-dim); background:rgba(10,132,255,0.08); border:1px solid rgba(10,132,255,0.2); padding:6px 10px; border-radius:6px; text-align:left;">
+            🔒 <strong>macOS Note:</strong> Go to <em>System Settings ➔ Privacy & Security</em> and click <strong>"Open Anyway"</strong> on first launch.
+          </div>
+        </div>
+
+        <div class="dl-card">
+          <div class="dl-icon">🪟</div>
+          <div class="dl-platform">Windows Package (.zip)</div>
+          <div class="dl-meta">Supports Windows 10 & Windows 11 (64-bit)</div>
+          <a href="MarkoPoloExplorer.zip" download="MarkoPoloExplorer.zip" class="btn-primary" style="width:100%; justify-content:center; margin-bottom:12px; background: linear-gradient(135deg, #0078d4, #00b4d8);">
+            Download MarkoPoloExplorer.zip
+          </a>
+          <div style="font-size:11px; color:var(--text-dim); background:rgba(0,120,212,0.08); border:1px solid rgba(0,120,212,0.2); padding:10px 14px; border-radius:8px; text-align:left; line-height:1.5;">
+            🪟 <strong>Windows Setup:</strong> Extract <code>MarkoPoloExplorer.zip</code> and double-click <code>Install Marko Polo Explorer.bat</code> for automatic Desktop shortcut setup!
+          </div>
+        </div>
+
+        <div class="dl-card">
+          <div class="dl-icon">⚡</div>
+          <div class="dl-platform">Windows Standalone (.exe)</div>
+          <div class="dl-meta">Native C app • Windows 10 & 11 (64-bit) • No install needed</div>
+          <a href="MarkoPoloExplorer.exe" download="MarkoPoloExplorer.exe" class="btn-primary" style="width:100%; justify-content:center; margin-bottom:12px; background: linear-gradient(135deg, #00b4d8, #30d158);">
+            Download MarkoPoloExplorer.exe
+          </a>
+          <div style="font-size:11px; color:var(--text-dim); background:rgba(48,209,88,0.08); border:1px solid rgba(48,209,88,0.2); padding:10px 14px; border-radius:8px; text-align:left; line-height:1.5;">
+            ⚡ <strong>One File, Zero Setup:</strong> Download and double-click — that's it. If SmartScreen appears, click <em>More info ➔ Run anyway</em>. Updates itself via the built-in <strong>Update</strong> button.
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Contact & Bug Report Section -->
+  <section class="contact-section" id="contact">
+    <div class="contact-box">
+      <div class="contact-header">
+        <span class="badge" style="background:rgba(10,132,255,0.12); color:#0a84ff; padding:6px 14px; border-radius:20px; font-size:12px; font-weight:700; display:inline-block; margin-bottom:12px;">💬 Support & Feedback</span>
+        <h2 style="font-size:32px; font-weight:800; margin:8px 0;">Report a Bug / Issue</h2>
+        <p style="color:var(--text-muted); font-size:15px;">Found an issue, have a feature request, or need help? Send us a message below.</p>
+      </div>
+
+      <!-- Status Notices -->
+      <div id="formStatusSuccess" style="display:none; background:rgba(48,209,88,0.12); border:1px solid #30d158; color:#30d158; padding:12px 16px; border-radius:8px; margin-bottom:20px; font-size:14px; font-weight:600; text-align:center;">
+        ✅ Thank you! Your message / bug report has been sent successfully.
+      </div>
+      <div id="formStatusError" style="display:none; background:rgba(255,69,58,0.12); border:1px solid #ff453a; color:#ff453a; padding:12px 16px; border-radius:8px; margin-bottom:20px; font-size:14px; font-weight:600; text-align:center;">
+        ⚠️ There was an error sending your message. Please check all required fields and try again.
+      </div>
+
+      <form action="send_mail.php" method="POST" class="contact-form" id="bugContactForm">
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="senderName">Your Name</label>
+            <input type="text" id="senderName" name="name" placeholder="John Doe" required>
+          </div>
+
+          <div class="form-group">
+            <label for="senderEmail">Your Email</label>
+            <input type="email" id="senderEmail" name="email" placeholder="you@example.com" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="issueCategory">Type / Category</label>
+            <select id="issueCategory" name="category" required>
+              <option value="Bug / Issue Report">🐛 Report a Bug / Issue</option>
+              <option value="Feature Request">💡 Feature Request</option>
+              <option value="Windows Support">🪟 Windows Support</option>
+              <option value="macOS Support">🍎 macOS Support</option>
+              <option value="General Feedback">💬 General Feedback</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="operatingSystem">Operating System</label>
+            <select id="operatingSystem" name="os">
+              <option value="Windows 11">Windows 11</option>
+              <option value="Windows 10">Windows 10</option>
+              <option value="macOS Sequoia / Sonoma">macOS (Sequoia / Sonoma)</option>
+              <option value="Other">Other / Both</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="messageText">Detailed Message / Bug Description</label>
+          <textarea id="messageText" name="message" rows="5" placeholder="Please describe what happened, steps to reproduce, or your feedback..." required></textarea>
+        </div>
+
+        <button type="submit" class="btn-primary btn-submit">
+          ✉️ Send Report / Message
+        </button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <p>© 2026 Marko Polo Explorer. All rights reserved.</p>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>

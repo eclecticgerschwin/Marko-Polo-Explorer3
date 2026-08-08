@@ -1,0 +1,55 @@
+name: Build Windows Standalone EXE
+
+on:
+  workflow_dispatch:        # run manually from the GitHub "Actions" tab
+  push:
+    tags:
+      - "v*"                # or automatically when you push a tag like v08082616
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bump DDMMYYHH version
+        run: python update_version.py
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install PySide6 pyinstaller
+
+      - name: Build one-file exe
+        shell: pwsh
+        run: |
+          $assets = @("markopolo.png","markopolo.ico","markopolo_animated.gif","robot_blink.gif",
+                      "ARW button clicked left.png","ARW button clicked right.png",
+                      "ARW-active.png","ARW-active.jpeg","ARW-buttons not active.png",
+                      "folder.png","folder2.png","version.json")
+          $addData = @()
+          foreach ($a in $assets) {
+            if (Test-Path $a) { $addData += "--add-data"; $addData += "$a;." }
+          }
+          python -m PyInstaller --noconfirm --onefile --windowed `
+            --name MarkoPoloExplorer --icon markopolo.ico `
+            @addData image_capture_app.py
+
+      - name: Package zip for auto-updater
+        shell: pwsh
+        run: Compress-Archive -Force -Path "dist/MarkoPoloExplorer.exe","version.json" -DestinationPath "MarkoPoloExplorer.zip"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: MarkoPoloExplorer-Windows
+          path: |
+            dist/MarkoPoloExplorer.exe
+            MarkoPoloExplorer.zip
+            version.json

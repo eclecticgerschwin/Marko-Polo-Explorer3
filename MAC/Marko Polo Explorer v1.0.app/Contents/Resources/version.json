@@ -1,0 +1,10 @@
+{
+  "version": "08082615",
+  "release_notes": "Marko Polo Explorer v08082615 release.",
+  "mac": {
+    "url": "http://marko.com.hr/markopolo/MarkoPoloExplorer.dmg"
+  },
+  "windows": {
+    "url": "http://marko.com.hr/markopolo/MarkoPoloExplorer.zip"
+  }
+}
