@@ -50,6 +50,5 @@ jobs:
         with:
           name: MarkoPoloExplorer-Windows
           path: |
-            dist/MarkoPoloExplorer.exe
             MarkoPoloExplorer-Windows.zip
             version.json
