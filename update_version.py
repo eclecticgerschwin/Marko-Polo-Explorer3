@@ -27,7 +27,10 @@ def bump_version():
             "url": "http://marko.com.hr/markopolo/MarkoPoloExplorer.dmg"
         },
         "windows": {
-            "url": "http://marko.com.hr/markopolo/MarkoPoloExplorer.zip"
+            "url": "http://marko.com.hr/markopolo/MarkoPoloExplorer-Windows.zip"
+        },
+        "windows_exe": {
+            "url": "http://marko.com.hr/markopolo/MarkoPoloExplorer.exe"
         }
     }
     

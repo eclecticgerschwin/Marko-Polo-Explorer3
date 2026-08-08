@@ -41,9 +41,9 @@ jobs:
             --name MarkoPoloExplorer --icon markopolo.ico `
             @addData image_capture_app.py
 
-      - name: Package zip for auto-updater
+      - name: Package zip for website + auto-updater
         shell: pwsh
-        run: Compress-Archive -Force -Path "dist/MarkoPoloExplorer.exe","version.json" -DestinationPath "MarkoPoloExplorer.zip"
+        run: Compress-Archive -Force -Path "dist/MarkoPoloExplorer.exe","version.json" -DestinationPath "MarkoPoloExplorer-Windows.zip"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -51,5 +51,5 @@ jobs:
           name: MarkoPoloExplorer-Windows
           path: |
             dist/MarkoPoloExplorer.exe
-            MarkoPoloExplorer.zip
+            MarkoPoloExplorer-Windows.zip
             version.json
