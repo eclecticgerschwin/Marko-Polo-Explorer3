@@ -3,20 +3,20 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 cd "$DIR"
 
 echo "========================================================"
-echo "🚀 Marko Polo Explorer - macOS Packaging & Release"
-echo "   (Windows exe is built by GitHub Actions, not here)"
+echo "🚀 Marko Polo Explorer - Automatic Packaging & Release"
 echo "========================================================"
 
 python3 update_version.py
 
 echo ""
-echo "🧹 Scrubbing developer logs and session history..."
+echo "🧹 Scrubbing developer logs, session history, and internal build scripts..."
 rm -f MAC/*.log MAC/*_log.txt MAC/*_session.json
+rm -f WINDOWS/*.log WINDOWS/*_log.txt WINDOWS/*_session.json WINDOWS/build_windows_exe.bat WINDOWS/install_requirements.bat
 rm -f "MAC/Marko Polo Explorer v1.0.app/Contents/Resources/"*.log "MAC/Marko Polo Explorer v1.0.app/Contents/Resources/"*_log.txt "MAC/Marko Polo Explorer v1.0.app/Contents/Resources/"*_session.json
 
-# ─── Sync root app source → MAC/ ─────────────────────────────
+# ─── Sync root app source → WINDOWS/ and MAC/ ────────────────
 echo ""
-echo "🔄 Syncing app source code to MAC/..."
+echo "🔄 Syncing app source code to WINDOWS/ and MAC/..."
 SYNC_FILES=(
     "image_capture_app.py"
     "updater.py"
@@ -34,10 +34,11 @@ SYNC_FILES=(
 )
 for f in "${SYNC_FILES[@]}"; do
     if [ -f "$f" ]; then
+        cp "$f" "WINDOWS/$f"
         cp "$f" "MAC/$f"
     fi
 done
-echo "   ✅ MAC/ folder synced with latest source."
+echo "   ✅ WINDOWS/ and MAC/ folders synced with latest source."
 
 # ─── macOS .app Bundle ───────────────────────────────────────
 echo "📱 Bundling self-contained macOS App Resources..."
@@ -56,15 +57,15 @@ EOF
 chmod +x "MAC/Marko Polo Explorer v1.0.app/Contents/MacOS/Marko Polo Explorer"
 
 echo "🧹 Cleaning permissions and Apple extended attributes..."
-chmod -R 755 MAC 2>/dev/null
-xattr -rc MAC 2>/dev/null
-find MAC -name ".DS_Store" -delete 2>/dev/null
-find MAC -name "._*" -delete 2>/dev/null
+chmod -R 755 MAC WINDOWS 2>/dev/null
+xattr -rc MAC WINDOWS 2>/dev/null
+find MAC WINDOWS -name ".DS_Store" -delete 2>/dev/null
+find MAC WINDOWS -name "._*" -delete 2>/dev/null
 codesign --force --deep --sign - "MAC/Marko Polo Explorer v1.0.app" 2>/dev/null
 
 # ─── macOS DMG ───────────────────────────────────────────────
 echo "📦 Creating MarkoPoloExplorer.dmg installer..."
-rm -f MarkoPoloExplorer.dmg MAC.zip
+rm -f MarkoPoloExplorer.dmg MAC.zip MarkoPoloExplorer.zip
 rm -rf MAC_DMG_BUILD
 
 mkdir -p MAC_DMG_BUILD
@@ -73,43 +74,51 @@ ln -s /Applications "MAC_DMG_BUILD/Applications"
 hdiutil create -volname "Marko Polo Explorer" -srcfolder MAC_DMG_BUILD -ov -format UDZO MarkoPoloExplorer.dmg >/dev/null 2>&1
 rm -rf MAC_DMG_BUILD
 
-# ─── Windows ZIP via GitHub Actions ──────────────────────────
-echo ""
-NEW_VER=$(python3 -c 'import json; print(json.load(open("version.json"))["version"])')
-if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-    echo "🪟 Building Windows exe on GitHub Actions (v$NEW_VER)..."
-    git add -A
-    git commit -m "Release v$NEW_VER" >/dev/null 2>&1 || true
-    git push origin main || { echo "   ❌ git push failed - open GitHub Desktop and push manually."; }
+# ─── Windows ZIP (Python package with 1-click installer) ─────
+echo "📦 Creating MarkoPoloExplorer.zip for Windows..."
+rm -rf WIN_ZIP_BUILD MarkoPoloExplorer.zip
+mkdir -p WIN_ZIP_BUILD/program
 
-    gh workflow run build-windows.yml >/dev/null 2>&1
-    echo "   ⏳ Waiting for the cloud build to start..."
-    sleep 10
-    RUN_ID=$(gh run list --workflow=build-windows.yml --limit 1 --json databaseId -q '.[0].databaseId')
-    echo "   ⏳ Building on Windows runner (run $RUN_ID) - takes ~5-10 min..."
-    if gh run watch "$RUN_ID" --exit-status >/dev/null 2>&1; then
-        rm -rf _win_artifact MarkoPoloExplorer-Windows.zip
-        gh run download "$RUN_ID" -n MarkoPoloExplorer-Windows -D _win_artifact
-        find _win_artifact -name "MarkoPoloExplorer-Windows.zip" -exec cp {} . \;
-        rm -rf _win_artifact
-        echo "   ✅ MarkoPoloExplorer-Windows.zip downloaded to project root."
-    else
-        echo "   ❌ Windows build FAILED - check the Actions tab on github.com."
-    fi
-else
-    echo "⚠️  Skipping Windows build - GitHub CLI not set up."
-    echo "   One-time setup:   brew install gh    then:   gh auth login"
-    echo "   (or push in GitHub Desktop and run the workflow manually)"
-fi
+# Copy the top-level installer and uninstaller batch files
+cp "WINDOWS/Install Marko Polo Explorer.bat" "WIN_ZIP_BUILD/Install Marko Polo Explorer.bat"
+cp "WINDOWS/Uninstall Marko Polo Explorer.bat" "WIN_ZIP_BUILD/Uninstall Marko Polo Explorer.bat" 2>/dev/null || true
+
+# Copy all program files into program/ subfolder
+cp -R WINDOWS/* WIN_ZIP_BUILD/program/ 2>/dev/null || true
+
+# Remove files that should NOT be in the ZIP
+rm -f "WIN_ZIP_BUILD/program/Install Marko Polo Explorer.bat"
+rm -f "WIN_ZIP_BUILD/program/Uninstall Marko Polo Explorer.bat"
+rm -f "WIN_ZIP_BUILD/program/ONE_CLICK_INSTALL.bat"
+rm -f "WIN_ZIP_BUILD/program/gui_installer.py"
+rm -f "WIN_ZIP_BUILD/program/installer.py"
+rm -f WIN_ZIP_BUILD/program/Install_MarkoPoloExplorer.exe
+rm -f WIN_ZIP_BUILD/program/python-installer.exe
+rm -f WIN_ZIP_BUILD/program/*.log
+rm -f WIN_ZIP_BUILD/program/*_log.txt
+rm -f WIN_ZIP_BUILD/program/*_session.json
+rm -f WIN_ZIP_BUILD/program/installer_nuitka.iss
+rm -f WIN_ZIP_BUILD/program/installer.nsi
+rm -f WIN_ZIP_BUILD/program/installer.iss
+
+# Create the ZIP
+cd WIN_ZIP_BUILD && zip -q -r -X ../MarkoPoloExplorer.zip . \
+    -x "*.DS_Store" -x "__MACOSX/*" -x "*/._*" \
+    && cd ..
+rm -rf WIN_ZIP_BUILD
+
+echo "   ✅ MarkoPoloExplorer.zip packaged."
 
 # ─── Summary ─────────────────────────────────────────────────
+NEW_VER=$(python3 -c 'import json; print(json.load(open("version.json"))["version"])')
 echo ""
-echo "✅ RELEASE v$NEW_VER - files in project root:"
-echo "   1. version.json               -> upload to server (markopolo/)"
-echo "   2. MarkoPoloExplorer.dmg      -> upload to server (macOS)"
-echo "   3. MarkoPoloExplorer-Windows.zip -> upload to server / Google Drive"
-echo "      (the exe for the Google Drive website link is inside this zip:"
-echo "       Drive -> Manage versions -> Upload new version)"
+echo "✅ SUCCESS! Release v$NEW_VER files generated in project root:"
+echo "   1. version.json           -> upload to server (markopolo/)"
+echo "   2. MarkoPoloExplorer.dmg  -> upload to server (macOS)"
+echo "   3. MarkoPoloExplorer.zip  -> upload to server (Windows Python package)"
+echo ""
+echo "   💡 The standalone Windows .exe (Google Drive link on the website)"
+echo "      is built separately via GitHub Actions when you want to update it."
 echo "========================================================"
 echo "Press any key to close..."
 read -n 1
