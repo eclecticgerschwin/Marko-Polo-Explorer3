@@ -969,12 +969,12 @@ class DarkQuickLookDialog(QDialog):
         self.fit_mode = "fit"
         self._pix_cache = {}
         
-        self.setWindowFlags(Qt.Window | Qt.WindowMinMaxButtonsHint | Qt.WindowCloseButtonHint)
+        self.setWindowFlags(Qt.Window | Qt.WindowCloseButtonHint)
         self.setWindowTitle("Quick Look - Marko Polo Explorer")
         self.resize(960, 680)
         self.setStyleSheet("""
             QDialog { background-color: #121212; color: #f0f0f0; }
-            QLabel { color: #f0f0f0; }
+            QLabel { background-color: #121212; color: #f0f0f0; }
             QPushButton {
                 background: #1a1a1a;
                 color: #f0f0f0;
@@ -989,7 +989,7 @@ class DarkQuickLookDialog(QDialog):
                 color: white;
                 border-color: #0a84ff;
             }
-            QScrollArea {
+            QScrollArea, QScrollArea > QWidget > QWidget {
                 background-color: #121212;
                 border: none;
             }
@@ -1097,12 +1097,15 @@ class DarkQuickLookDialog(QDialog):
 
         # Content Scroll Area & Stack
         self.scroll_area = QScrollArea()
+        self.scroll_area.setStyleSheet("background-color: #121212; border: none;")
+        self.scroll_area.viewport().setStyleSheet("background-color: #121212;")
         self.scroll_area.setContextMenuPolicy(Qt.CustomContextMenu)
         self.scroll_area.customContextMenuRequested.connect(self._show_preview_context_menu)
         self.scroll_area.installEventFilter(self)
         self.scroll_area.viewport().installEventFilter(self)
         
         self.img_lbl = QLabel()
+        self.img_lbl.setStyleSheet("background-color: #121212;")
         self.img_lbl.setAlignment(Qt.AlignCenter)
         self.img_lbl.setContextMenuPolicy(Qt.CustomContextMenu)
         self.img_lbl.customContextMenuRequested.connect(self._show_preview_context_menu)
@@ -6012,43 +6015,6 @@ class ImageCaptureClone(QMainWindow):
 
         self.tb.addSeparator()
 
-        # Window Control Buttons (Center, Fullscreen, Minimize) - Windows Only
-        if sys.platform == "win32":
-            self.reset_win_btn = QPushButton("🎯 Center")
-            self.reset_win_btn.setCursor(Qt.PointingHandCursor)
-            self.reset_win_btn.setToolTip("Reset and Center window on screen (1280x780)")
-            self.reset_win_btn.setStyleSheet(f"""
-                QPushButton {{ background:{BTN_BG}; color:{TEXT}; border:1px solid {BORDER};
-                              border-radius:7px; padding:6px 12px; font-size:11px; font-weight:600; }}
-                QPushButton:hover {{ background:{BTN_HOVER}; color:{ACCENT}; border-color:{ACCENT}; }}
-            """)
-            self.reset_win_btn.clicked.connect(self._center_on_screen)
-            self.tb.addWidget(self.reset_win_btn)
-
-            self.max_btn = QPushButton("⛶ Fullscreen")
-            self.max_btn.setCursor(Qt.PointingHandCursor)
-            self.max_btn.setToolTip("Toggle Fullscreen / Maximize window")
-            self.max_btn.setStyleSheet(f"""
-                QPushButton {{ background:{BTN_BG}; color:{TEXT}; border:1px solid {BORDER};
-                              border-radius:7px; padding:6px 12px; font-size:11px; font-weight:600; }}
-                QPushButton:hover {{ background:{BTN_HOVER}; color:{ACCENT}; border-color:{ACCENT}; }}
-            """)
-            self.max_btn.clicked.connect(self._toggle_fullscreen)
-            self.tb.addWidget(self.max_btn)
-
-            self.min_btn = QPushButton("🗕 Minimize")
-            self.min_btn.setCursor(Qt.PointingHandCursor)
-            self.min_btn.setToolTip("Minimize Marko Polo Explorer window")
-            self.min_btn.setStyleSheet(f"""
-                QPushButton {{ background:{BTN_BG}; color:{TEXT}; border:1px solid {BORDER};
-                              border-radius:7px; padding:6px 12px; font-size:11px; font-weight:600; }}
-                QPushButton:hover {{ background:{BTN_HOVER}; }}
-            """)
-            self.min_btn.clicked.connect(self.showMinimized)
-            self.tb.addWidget(self.min_btn)
-
-            self.tb.addSeparator()
-
         # Quit Button (always prominent in top-right corner)
         self.quit_btn = QPushButton("✕ Quit")
         self.quit_btn.setCursor(Qt.PointingHandCursor)
@@ -6482,27 +6448,126 @@ class ImageCaptureClone(QMainWindow):
         if hasattr(self, "speech_bubble"):
             self.speech_bubble.set_speech_text("⚡ Update downloaded! Restarting application...")
 
-        updater_py = os.path.join(script_dir, "updater.py")
+        # Detect if running as Nuitka standalone (frozen) build
+        is_nuitka = getattr(sys, "frozen", False) or "__compiled__" in dir()
 
-        # Determine restart launch command
-        if sys.platform == "darwin":
-            app_bundle = os.path.join(script_dir, "Marko Polo Explorer v1.0.app")
-            if os.path.exists(app_bundle):
-                launch_cmd = f'open -n "{app_bundle}"'
-            else:
-                launch_cmd = f'"{sys.executable}" "{os.path.join(script_dir, "image_capture_app.py")}"'
+        if is_nuitka and sys.platform == "win32":
+            # Nuitka standalone Windows: use batch script to replace the .exe and relaunch
+            self._apply_nuitka_update(zip_path)
         else:
-            bat_file = os.path.join(script_dir, "run_app.bat")
-            if os.path.exists(bat_file):
-                launch_cmd = f'"{bat_file}"'
-            else:
-                launch_cmd = f'"{sys.executable}" "{os.path.join(script_dir, "image_capture_app.py")}"'
+            # Regular Python environment: use updater.py
+            updater_py = os.path.join(script_dir, "updater.py")
 
-        cmd = [sys.executable, updater_py, "--zip", zip_path, "--target", script_dir, "--pid", str(os.getpid()), "--launch", launch_cmd]
+            # Determine restart launch command
+            if sys.platform == "darwin":
+                app_bundle = os.path.join(script_dir, "Marko Polo Explorer v1.0.app")
+                if os.path.exists(app_bundle):
+                    launch_cmd = f'open -n "{app_bundle}"'
+                else:
+                    launch_cmd = f'"{sys.executable}" "{os.path.join(script_dir, "image_capture_app.py")}"'
+            else:
+                bat_file = os.path.join(script_dir, "run_app.bat")
+                if os.path.exists(bat_file):
+                    launch_cmd = f'"{bat_file}"'
+                else:
+                    launch_cmd = f'"{sys.executable}" "{os.path.join(script_dir, "image_capture_app.py")}"'
+
+            cmd = [sys.executable, updater_py, "--zip", zip_path, "--target", script_dir, "--pid", str(os.getpid()), "--launch", launch_cmd]
+            try:
+                subprocess.Popen(cmd, cwd=script_dir)
+            except Exception as e:
+                QMessageBox.critical(self, "Update Error", f"Failed to launch updater: {e}")
+                return
+
+            QApplication.quit()
+
+    def _apply_nuitka_update(self, zip_path):
+        """Apply update for Nuitka standalone Windows build.
+        
+        Downloads are ZIP files containing a program/ subfolder.
+        Extracts updated files (image assets, version.json, etc.) and if a new
+        MarkoPoloExplorer.exe is included, replaces the running executable via a
+        temporary batch script (since a running .exe can't overwrite itself).
+        """
+        import zipfile as zf
+
+        current_exe = os.path.abspath(sys.executable)
+        app_dir = os.path.dirname(current_exe)
+        tmp_dir = tempfile.mkdtemp(prefix="markopolo_update_")
+
         try:
-            subprocess.Popen(cmd, cwd=script_dir)
+            with zf.ZipFile(zip_path, 'r') as z:
+                all_names = z.namelist()
+                has_program = any(n.startswith("program/") for n in all_names)
+
+                for member in z.infolist():
+                    if member.is_dir():
+                        continue
+
+                    # Determine actual relative path
+                    if has_program:
+                        if not member.filename.startswith("program/"):
+                            continue
+                        rel = member.filename[len("program/"):]
+                    else:
+                        rel = member.filename
+
+                    if not rel:
+                        continue
+
+                    out = os.path.join(tmp_dir, rel)
+                    os.makedirs(os.path.dirname(out), exist_ok=True)
+                    with z.open(member) as src, open(out, 'wb') as dst:
+                        dst.write(src.read())
+
+            # Build batch script that waits for this process to exit, then copies files and relaunches
+            bat_path = os.path.join(tmp_dir, "_update.bat")
+            exe_name = os.path.basename(current_exe)
+
+            bat_lines = [
+                "@echo off",
+                "echo Applying Marko Polo Explorer update...",
+                f'ping 127.0.0.1 -n 3 > nul',  # wait ~2 seconds for app to close
+                "",
+                "rem Copy all extracted files to app directory",
+            ]
+
+            # Copy all extracted files
+            for root, dirs, files in os.walk(tmp_dir):
+                for fn in files:
+                    if fn == "_update.bat":
+                        continue
+                    src = os.path.join(root, fn)
+                    rel = os.path.relpath(src, tmp_dir)
+                    dst = os.path.join(app_dir, rel)
+                    bat_lines.append(f'mkdir "{os.path.dirname(dst)}" 2>nul')
+                    bat_lines.append(f'copy /y "{src}" "{dst}"')
+
+            # Relaunch the app
+            bat_lines.append("")
+            bat_lines.append(f'start "" "{current_exe}"')
+            bat_lines.append("")
+            bat_lines.append("rem Clean up temp files")
+            bat_lines.append(f'rmdir /s /q "{tmp_dir}"')
+            bat_lines.append(f'del "%~f0"')
+
+            with open(bat_path, 'w') as f:
+                f.write('\n'.join(bat_lines))
+
+            # Remove downloaded zip
+            try:
+                os.remove(zip_path)
+            except Exception:
+                pass
+
+            # Launch the updater batch and quit
+            subprocess.Popen(
+                ['cmd', '/c', bat_path],
+                creationflags=subprocess.CREATE_NO_WINDOW if hasattr(subprocess, 'CREATE_NO_WINDOW') else 0x08000000,
+                cwd=tmp_dir
+            )
         except Exception as e:
-            QMessageBox.critical(self, "Update Error", f"Failed to launch updater: {e}")
+            QMessageBox.critical(self, "Update Error", f"Failed to apply standalone update:\n{e}")
             return
 
         QApplication.quit()

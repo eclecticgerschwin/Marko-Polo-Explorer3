@@ -18,9 +18,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Bump DDMMYYHH version
-        run: python update_version.py
-
+      # Version is NOT bumped here - the Mac's BUILD_AND_PACKAGE.command sets it
+      # and commits it, so Mac and Windows releases always share one version.
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip

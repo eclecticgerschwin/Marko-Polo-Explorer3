@@ -32,20 +32,22 @@
 
 ---
 
-## 📦 Release Procedure
+## 📦 Release Procedure (one command for both platforms)
 
-### Windows release (built by GitHub Actions — works from the Mac)
-1. Edit and test the app, then in **GitHub Desktop**: Commit to main → **Push origin**.
-2. On github.com → repo → **Actions** → "Build Windows Standalone EXE" → **Run workflow** (~5–10 min). Version is bumped automatically.
-3. Download the artifact: contains `MarkoPoloExplorer-Windows.zip` + `version.json`.
-4. Upload both to `marko.com.hr/markopolo/` (if FTP fails on big files, split into parts and use `UPLOAD_PARTS/join.php` on the server).
-5. To refresh the website exe: take `MarkoPoloExplorer.exe` from inside the zip → Google Drive → right-click the file → *Manage versions → Upload new version* (keeps the same link).
+One-time setup on the Mac: `brew install gh` then `gh auth login`.
 
-### macOS release
+For every release:
 ```bash
 ./BUILD_AND_PACKAGE.command
 ```
-Then upload `MarkoPoloExplorer.dmg` and `version.json` as usual.
+This bumps the version, builds the macOS dmg, pushes to GitHub, triggers the
+cloud Windows build, waits, and downloads `MarkoPoloExplorer-Windows.zip` into
+the project root. Then:
+
+1. Upload `version.json`, `MarkoPoloExplorer.dmg`, `MarkoPoloExplorer-Windows.zip` to `marko.com.hr/markopolo/` (for big files use the split-parts + `UPLOAD_PARTS/join.php` trick).
+2. Website exe: take `MarkoPoloExplorer.exe` from inside the zip → Google Drive → right-click file → *Manage versions → Upload new version* (keeps the same link).
+
+If `gh` isn't set up, the script skips the Windows part — push in GitHub Desktop and run the "Build Windows Standalone EXE" workflow manually instead.
 
 ---
 

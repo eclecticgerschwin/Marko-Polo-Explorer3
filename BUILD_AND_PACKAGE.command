@@ -73,15 +73,43 @@ ln -s /Applications "MAC_DMG_BUILD/Applications"
 hdiutil create -volname "Marko Polo Explorer" -srcfolder MAC_DMG_BUILD -ov -format UDZO MarkoPoloExplorer.dmg >/dev/null 2>&1
 rm -rf MAC_DMG_BUILD
 
+# ─── Windows ZIP via GitHub Actions ──────────────────────────
+echo ""
+NEW_VER=$(python3 -c 'import json; print(json.load(open("version.json"))["version"])')
+if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    echo "🪟 Building Windows exe on GitHub Actions (v$NEW_VER)..."
+    git add -A
+    git commit -m "Release v$NEW_VER" >/dev/null 2>&1 || true
+    git push origin main || { echo "   ❌ git push failed - open GitHub Desktop and push manually."; }
+
+    gh workflow run build-windows.yml >/dev/null 2>&1
+    echo "   ⏳ Waiting for the cloud build to start..."
+    sleep 10
+    RUN_ID=$(gh run list --workflow=build-windows.yml --limit 1 --json databaseId -q '.[0].databaseId')
+    echo "   ⏳ Building on Windows runner (run $RUN_ID) - takes ~5-10 min..."
+    if gh run watch "$RUN_ID" --exit-status >/dev/null 2>&1; then
+        rm -rf _win_artifact MarkoPoloExplorer-Windows.zip
+        gh run download "$RUN_ID" -n MarkoPoloExplorer-Windows -D _win_artifact
+        find _win_artifact -name "MarkoPoloExplorer-Windows.zip" -exec cp {} . \;
+        rm -rf _win_artifact
+        echo "   ✅ MarkoPoloExplorer-Windows.zip downloaded to project root."
+    else
+        echo "   ❌ Windows build FAILED - check the Actions tab on github.com."
+    fi
+else
+    echo "⚠️  Skipping Windows build - GitHub CLI not set up."
+    echo "   One-time setup:   brew install gh    then:   gh auth login"
+    echo "   (or push in GitHub Desktop and run the workflow manually)"
+fi
+
 # ─── Summary ─────────────────────────────────────────────────
 echo ""
-echo "✅ SUCCESS! macOS release files generated in project root:"
-echo "   1. version.json"
-echo "   2. MarkoPoloExplorer.dmg  (macOS - Drag to /Applications)"
-echo ""
-echo "   🪟 Windows release: push to GitHub (GitHub Desktop) and run"
-echo "      the 'Build Windows Standalone EXE' workflow, then upload"
-echo "      MarkoPoloExplorer-Windows.zip + version.json to the server."
+echo "✅ RELEASE v$NEW_VER - files in project root:"
+echo "   1. version.json               -> upload to server (markopolo/)"
+echo "   2. MarkoPoloExplorer.dmg      -> upload to server (macOS)"
+echo "   3. MarkoPoloExplorer-Windows.zip -> upload to server / Google Drive"
+echo "      (the exe for the Google Drive website link is inside this zip:"
+echo "       Drive -> Manage versions -> Upload new version)"
 echo "========================================================"
 echo "Press any key to close..."
 read -n 1
