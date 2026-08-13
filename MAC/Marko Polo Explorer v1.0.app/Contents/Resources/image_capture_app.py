@@ -132,7 +132,7 @@ import urllib.request
 import urllib.parse
 import zipfile
 
-__version__ = "13082620"
+__version__ = "13082621"
 DEFAULT_UPDATE_CHECK_URL = "http://marko.com.hr/markopolo/version.json"
 
 
