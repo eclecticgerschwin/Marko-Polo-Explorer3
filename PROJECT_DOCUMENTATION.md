@@ -95,6 +95,7 @@ Marko Polo Explorer/
 - `FilePanel` (`QWidget`): High-performance dual file explorer panel supporting list/grid views, drag-and-drop, selection rectangle overlay (`RubberBandGridWidget`), breadcrumb navigation (`NavPillWidget`), sorting, and file filtering.
 - `NativeVideoPlayerWidget`: Full-featured video player with play/pause, seek slider, and audio control powered by QtMultimedia.
 - `DarkQuickLookDialog` / `GetInfoDialog`: macOS QuickLook-inspired preview dialogs for full-res images, video playback, EXIF metadata inspection, and batch rename options.
+- `MonthSelectDialog`: Interactive dialog in the Commands panel allowing instant filtering and selection of files by specific month (1-12), Current Month, or All across years.
 
 ---
 

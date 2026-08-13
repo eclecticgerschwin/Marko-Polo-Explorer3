@@ -132,7 +132,7 @@ import urllib.request
 import urllib.parse
 import zipfile
 
-__version__ = "13082621"
+__version__ = "13082623"
 DEFAULT_UPDATE_CHECK_URL = "http://marko.com.hr/markopolo/version.json"
 
 
@@ -417,6 +417,93 @@ def get_location_name_from_coords(lat, lon):
     loc_str = f"{lat:.4f}°, {lon:.4f}°"
     _GPS_CACHE[cache_key] = loc_str
     return loc_str
+
+# ── Date & Time Extraction Helper ─────────────────────────────────────────────
+def extract_item_datetime(item):
+    """Extract datetime object from local file path or camera/iPhone file object."""
+    if not item:
+        return None
+
+    # 1. String path (Local file)
+    if isinstance(item, str):
+        if item == ".." or not os.path.exists(item):
+            return None
+        try:
+            mtime = os.path.getmtime(item)
+            return datetime.fromtimestamp(mtime)
+        except Exception:
+            return None
+
+    # 2. Camera/iPhone file object (ICCameraFile, WindowsWPD, SimulatedCameraFile)
+    if hasattr(item, "creationDate"):
+        try:
+            cd = item.creationDate()
+            if isinstance(cd, datetime):
+                return cd
+            if cd:
+                s = str(cd).strip()
+                for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
+                    try:
+                        return datetime.strptime(s[:len(fmt)], fmt)
+                    except Exception:
+                        pass
+                # Fallback regex search for YYYY-MM
+                m = re.search(r'(\d{4})-(\d{2})(?:-(\d{2}))?', s)
+                if m:
+                    y = int(m.group(1))
+                    mo = int(m.group(2))
+                    d = int(m.group(3)) if m.group(3) else 1
+                    return datetime(y, mo, d)
+        except Exception:
+            pass
+
+    # 3. Path attribute if present
+    if hasattr(item, "path") and isinstance(item.path, str) and os.path.exists(item.path):
+        try:
+            return datetime.fromtimestamp(os.path.getmtime(item.path))
+        except Exception:
+            pass
+
+    return None
+
+
+def get_month_name(month_num):
+    """Return English full name for month number 1-12."""
+    months = [
+        "All Months", "January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"
+    ]
+    if isinstance(month_num, int) and 1 <= month_num <= 12:
+        return months[month_num]
+    return "All Months"
+
+
+def format_months_label(months_selection, year=None):
+    """Format a set, list, or int of month numbers into a clean readable string (e.g. 'Aug, Sep 2026')."""
+    if months_selection == "all" or not months_selection:
+        label = "All Months"
+    elif isinstance(months_selection, (int, float)):
+        label = get_month_name(int(months_selection))
+    elif isinstance(months_selection, (set, list, tuple)):
+        sorted_m = sorted(list(months_selection))
+        if len(sorted_m) == 12:
+            label = "All 12 Months"
+        elif len(sorted_m) == 1:
+            label = get_month_name(sorted_m[0])
+        elif len(sorted_m) == 0:
+            label = "No Months"
+        else:
+            short_names = [
+                "", "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+            ]
+            label = ", ".join(short_names[m] for m in sorted_m if 1 <= m <= 12)
+    else:
+        label = str(months_selection)
+
+    if year:
+        label += f" {year}"
+    return label
 
 # ── Simulated Camera File for Demo Mode ──────────────────────────────────────
 class SimulatedCameraFile:
@@ -927,6 +1014,8 @@ class NativeVideoPlayerWidget(QWidget):
         self.time_lbl.setText(f"{fmt(pos)} / {fmt(dur)}")
 
 # ── Async Geocoding Thread for Instant Preview Navigation ─────────────────────
+_ACTIVE_LOC_THREADS = set()
+
 class AsyncLocationThread(QThread):
     location_ready = Signal(str, str)
 
@@ -935,6 +1024,11 @@ class AsyncLocationThread(QThread):
         self.path = path
         self.lat = lat
         self.lon = lon
+        _ACTIVE_LOC_THREADS.add(self)
+        self.finished.connect(self._cleanup)
+
+    def _cleanup(self):
+        _ACTIVE_LOC_THREADS.discard(self)
 
     def run(self):
         try:
@@ -4893,6 +4987,130 @@ class FilePanel(QWidget):
         self._update_status_labels()
         self.update_preview()
 
+    def get_items_with_dates(self):
+        """Return list of (item_or_path, datetime_or_None, is_folder) for visible items in this panel."""
+        results = []
+        if self.mode == "local":
+            items = self._filtered_items()
+            for path, is_folder in items:
+                if path == ".." or is_folder:
+                    continue
+                dt = extract_item_datetime(path)
+                results.append((path, dt, False))
+        else:
+            files = self._filtered_files()
+            for file_obj in files:
+                dt = extract_item_datetime(file_obj)
+                results.append((file_obj, dt, False))
+        return results
+
+    def select_by_month(self, target_month=None, target_year=None):
+        """
+        Select all files matching target_month (int 1-12, set/list of ints, or 'all'/None) and optional target_year.
+        Returns the count of selected files.
+        """
+        selected_count = 0
+        self.selected_cards.clear()
+
+        target_set = None
+        if target_month is not None and target_month != "all":
+            if isinstance(target_month, (int, float)):
+                target_set = {int(target_month)}
+            elif isinstance(target_month, (set, list, tuple)):
+                target_set = {int(m) for m in target_month}
+
+        if self.view_mode == "details":
+            self.table.clearSelection()
+            sel_model = self.table.selectionModel()
+            sel_flags = QItemSelectionModel.Select | QItemSelectionModel.Rows
+
+            if self.mode == "local":
+                filtered = self._filtered_items()
+                for row in range(self.table.rowCount()):
+                    if 0 <= row < len(filtered):
+                        path, is_folder = filtered[row]
+                        if is_folder or path == "..":
+                            continue
+                        dt = extract_item_datetime(path)
+                        if dt:
+                            match = True
+                            if target_set is not None:
+                                if dt.month not in target_set:
+                                    match = False
+                            if target_year is not None:
+                                if dt.year != target_year:
+                                    match = False
+                            if match:
+                                idx = self.table.model().index(row, 0)
+                                sel_model.select(idx, sel_flags)
+                                selected_count += 1
+            else:
+                filtered = self._filtered_files()
+                for row in range(self.table.rowCount()):
+                    if 0 <= row < len(filtered):
+                        file_obj = filtered[row]
+                        dt = extract_item_datetime(file_obj)
+                        if dt:
+                            match = True
+                            if target_set is not None:
+                                if dt.month not in target_set:
+                                    match = False
+                            if target_year is not None:
+                                if dt.year != target_year:
+                                    match = False
+                            if match:
+                                idx = self.table.model().index(row, 0)
+                                sel_model.select(idx, sel_flags)
+                                selected_count += 1
+        else:
+            # Grid View
+            if self.mode == "local":
+                for c in self._cards:
+                    if c.path == ".." or getattr(c, "is_folder", False):
+                        c.set_selected(False)
+                        continue
+                    dt = extract_item_datetime(c.path)
+                    if dt:
+                        match = True
+                        if target_set is not None:
+                            if dt.month not in target_set:
+                                match = False
+                        if target_year is not None:
+                            if dt.year != target_year:
+                                match = False
+                        if match:
+                            c.set_selected(True)
+                            self.selected_cards.add(c.path)
+                            selected_count += 1
+                        else:
+                            c.set_selected(False)
+                    else:
+                        c.set_selected(False)
+            else:
+                for c in self._cards:
+                    file_obj = getattr(c, "file_object", None)
+                    dt = extract_item_datetime(file_obj)
+                    if dt:
+                        match = True
+                        if target_set is not None:
+                            if dt.month not in target_set:
+                                match = False
+                        if target_year is not None:
+                            if dt.year != target_year:
+                                match = False
+                        if match:
+                            c.set_selected(True)
+                            self.selected_cards.add(file_obj)
+                            selected_count += 1
+                        else:
+                            c.set_selected(False)
+                    else:
+                        c.set_selected(False)
+
+        self._update_status_labels()
+        self.update_preview()
+        return selected_count
+
     def _on_filter(self, f): self._filter = f; self._rebuild()
     def _on_search(self, s): self._search = s; self._rebuild()
 
@@ -4907,7 +5125,6 @@ class FilePanel(QWidget):
             if os.path.isdir(p_src) and dest_dir.startswith(p_src): continue
             
             dest = os.path.join(dest_dir, Path(p_src).name)
-            if p_src == dest: continue
             
             if os.path.exists(dest):
                 if overwrite_policy == "skip_all":
@@ -4921,6 +5138,17 @@ class FilePanel(QWidget):
                         continue
                     elif choice == "skip":
                         continue
+                    elif choice == "cancel":
+                        break
+
+                try:
+                    if os.path.exists(dest) and p_src != dest:
+                        if os.path.isdir(dest):
+                            shutil.rmtree(dest)
+                        else:
+                            os.unlink(dest)
+                except Exception:
+                    pass
 
             try:
                 if os.path.isdir(p_src):
@@ -6096,6 +6324,382 @@ class SpecialCommandsConfirmDialog(QDialog):
         lay.addLayout(btn_lay)
 
 
+# ── Select Files by Month Dialog (Multi-Month Support) ───────────────────────
+class MonthSelectDialog(QDialog):
+    """Modern modal dialog allowing users to select single or multiple months (e.g. 8 and 9, up to 12)."""
+    def __init__(self, items_with_dates, parent=None, active_panel_name="Source"):
+        super().__init__(parent)
+        self.setWindowTitle("📅 Select Files by Month")
+        self.setFixedWidth(500)
+        self.setModal(True)
+
+        self.selected_months = set()  # set of int month numbers (1-12) or "all"
+        self.selected_month = None    # set of ints or "all" after accept
+        self.selected_year = None     # int year or None (for all years)
+        self.items_with_dates = items_with_dates  # list of (item, dt, is_folder)
+
+        now = datetime.now()
+        self.current_month = now.month
+        self.current_year = now.year
+
+        # Default selection: current month
+        self.selected_months.add(self.current_month)
+
+        # Discover all available years
+        self.years_available = set()
+        for item, dt, is_folder in items_with_dates:
+            if dt and not is_folder:
+                self.years_available.add(dt.year)
+
+        is_dark = (CURRENT_THEME_MODE == "dark")
+        bg_color = "#1e1e24" if is_dark else "#ffffff"
+        card_bg = "#282830" if is_dark else "#f4f5f7"
+        text_color = "#ffffff" if is_dark else "#111827"
+        subtext_color = "#9ca3af" if is_dark else "#6b7280"
+        border_color = "#383842" if is_dark else "#e2e8f0"
+        btn_bg = "#2e2e38" if is_dark else "#edf2f7"
+        btn_hover = "#3e3e4a" if is_dark else "#e2e8f0"
+        accent_color = ACCENT
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+                border: 1px solid {border_color};
+                border-radius: 12px;
+            }}
+        """)
+
+        main_lay = QVBoxLayout(self)
+        main_lay.setContentsMargins(24, 20, 24, 20)
+        main_lay.setSpacing(14)
+
+        # Header
+        top_lay = QHBoxLayout()
+        top_lay.setSpacing(12)
+
+        icon_lbl = QLabel("📅")
+        icon_lbl.setStyleSheet("font-size: 32px; background: transparent;")
+        top_lay.addWidget(icon_lbl)
+
+        title_lay = QVBoxLayout()
+        title_lay.setSpacing(2)
+
+        title_lbl = QLabel("Select Files by Month")
+        title_lbl.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {text_color}; background: transparent;")
+        title_lay.addWidget(title_lbl)
+
+        total_files = len([1 for _, _, is_f in items_with_dates if not is_f])
+        sub_lbl = QLabel(f"Panel: {active_panel_name}  •  {total_files} files available (Multi-Select Enabled)")
+        sub_lbl.setStyleSheet(f"font-size: 12px; color: {subtext_color}; background: transparent;")
+        title_lay.addWidget(sub_lbl)
+        top_lay.addLayout(title_lay)
+        top_lay.addStretch()
+
+        main_lay.addLayout(top_lay)
+
+        # Year filter & quick action presets row
+        ctrl_bar = QHBoxLayout()
+        ctrl_bar.setSpacing(8)
+
+        year_lbl = QLabel("Year:")
+        year_lbl.setStyleSheet(f"font-size: 12px; font-weight: 600; color: {text_color}; background: transparent;")
+        ctrl_bar.addWidget(year_lbl)
+
+        self.year_combo = QComboBox()
+        self.year_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {btn_bg};
+                color: {text_color};
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 3px 8px;
+                font-size: 12px;
+                font-weight: 600;
+            }}
+            QComboBox::drop-down {{
+                border: none;
+            }}
+            QComboBox QAbstractItemView {{
+                background: {bg_color};
+                color: {text_color};
+                selection-background-color: {accent_color};
+                border: 1px solid {border_color};
+            }}
+        """)
+        self.year_combo.addItem("All Years", None)
+        if self.years_available:
+            for y in sorted(list(self.years_available), reverse=True):
+                self.year_combo.addItem(str(y), y)
+        else:
+            self.year_combo.addItem(str(self.current_year), self.current_year)
+
+        self.year_combo.currentIndexChanged.connect(self._update_month_counts)
+        ctrl_bar.addWidget(self.year_combo)
+        ctrl_bar.addSpacing(6)
+
+        # Quick preset buttons: Current Month, Select All, Clear
+        curr_m_name = datetime.now().strftime("%B")
+        self.btn_curr_month = QPushButton(f"✨ Current ({curr_m_name[:3]})")
+        self.btn_curr_month.setCursor(Qt.PointingHandCursor)
+        self.btn_curr_month.setFixedHeight(28)
+        self.btn_curr_month.setStyleSheet(f"""
+            QPushButton {{
+                background: {btn_bg};
+                color: {text_color};
+                font-weight: 600;
+                font-size: 11px;
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 0 8px;
+            }}
+            QPushButton:hover {{
+                background: {btn_hover};
+                border-color: {accent_color};
+            }}
+        """)
+        self.btn_curr_month.clicked.connect(self._select_only_current_month)
+        ctrl_bar.addWidget(self.btn_curr_month)
+
+        self.btn_all_months = QPushButton("🌟 All 12")
+        self.btn_all_months.setCursor(Qt.PointingHandCursor)
+        self.btn_all_months.setFixedHeight(28)
+        self.btn_all_months.setStyleSheet(f"""
+            QPushButton {{
+                background: {btn_bg};
+                color: {text_color};
+                font-weight: 600;
+                font-size: 11px;
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 0 8px;
+            }}
+            QPushButton:hover {{
+                background: {btn_hover};
+                border-color: {accent_color};
+            }}
+        """)
+        self.btn_all_months.clicked.connect(self._select_all_months)
+        ctrl_bar.addWidget(self.btn_all_months)
+
+        self.btn_clear_months = QPushButton("⬜ Clear")
+        self.btn_clear_months.setCursor(Qt.PointingHandCursor)
+        self.btn_clear_months.setFixedHeight(28)
+        self.btn_clear_months.setStyleSheet(f"""
+            QPushButton {{
+                background: {btn_bg};
+                color: {subtext_color};
+                font-weight: 600;
+                font-size: 11px;
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 0 8px;
+            }}
+            QPushButton:hover {{
+                background: {btn_hover};
+                color: {text_color};
+            }}
+        """)
+        self.btn_clear_months.clicked.connect(self._clear_all_months)
+        ctrl_bar.addWidget(self.btn_clear_months)
+
+        ctrl_bar.addStretch()
+        main_lay.addLayout(ctrl_bar)
+
+        # 12 Month Grid (4 columns x 3 rows) - Multi-Select Checkable Buttons
+        grid_frame = QFrame()
+        grid_frame.setStyleSheet(f"background: {card_bg}; border: 1px solid {border_color}; border-radius: 10px;")
+        grid_lay = QGridLayout(grid_frame)
+        grid_lay.setContentsMargins(12, 12, 12, 12)
+        grid_lay.setSpacing(8)
+
+        self.month_buttons = {}
+        months_meta = [
+            (1, "01 • Jan", "January"),
+            (2, "02 • Feb", "February"),
+            (3, "03 • Mar", "March"),
+            (4, "04 • Apr", "April"),
+            (5, "05 • May", "May"),
+            (6, "06 • Jun", "June"),
+            (7, "07 • Jul", "July"),
+            (8, "08 • Aug", "August"),
+            (9, "09 • Sep", "September"),
+            (10, "10 • Oct", "October"),
+            (11, "11 • Nov", "November"),
+            (12, "12 • Dec", "December"),
+        ]
+
+        for idx, (m_num, m_short, m_full) in enumerate(months_meta):
+            btn = QPushButton(m_short)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.setChecked(m_num in self.selected_months)
+            btn.setFixedHeight(38)
+            btn.setProperty("month_num", m_num)
+            btn.clicked.connect(lambda _, m=m_num: self._on_month_toggled(m))
+            row = idx // 4
+            col = idx % 4
+            grid_lay.addWidget(btn, row, col)
+            self.month_buttons[m_num] = (btn, m_short, m_full)
+
+        main_lay.addWidget(grid_frame)
+
+        # Selection Summary & Bottom Action Buttons
+        bot_lay = QHBoxLayout()
+        bot_lay.setSpacing(12)
+
+        self.summary_lbl = QLabel("")
+        self.summary_lbl.setStyleSheet("font-size: 12px; font-weight: 600; background: transparent;")
+        bot_lay.addWidget(self.summary_lbl, 1)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setFixedHeight(36)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {btn_bg};
+                color: {subtext_color};
+                font-weight: 600;
+                font-size: 12px;
+                border: 1px solid {border_color};
+                border-radius: 8px;
+                padding: 0 16px;
+            }}
+            QPushButton:hover {{
+                color: {text_color};
+                background: {btn_hover};
+            }}
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        bot_lay.addWidget(cancel_btn)
+
+        self.apply_btn = QPushButton("Apply Selection")
+        self.apply_btn.setCursor(Qt.PointingHandCursor)
+        self.apply_btn.setFixedHeight(36)
+        self.apply_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #30d158, stop:1 #28c04e);
+                color: #ffffff;
+                font-weight: 700;
+                font-size: 13px;
+                border: none;
+                border-radius: 8px;
+                padding: 0 20px;
+            }}
+            QPushButton:hover {{
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #28c04e, stop:1 #20a842);
+            }}
+            QPushButton:disabled {{
+                background: {btn_bg};
+                color: {subtext_color};
+                border: 1px solid {border_color};
+            }}
+        """)
+        self.apply_btn.clicked.connect(self._on_apply_clicked)
+        bot_lay.addWidget(self.apply_btn)
+
+        main_lay.addLayout(bot_lay)
+
+        self._update_month_counts()
+
+    def _on_month_toggled(self, month_num):
+        if month_num in self.selected_months:
+            self.selected_months.remove(month_num)
+        else:
+            self.selected_months.add(month_num)
+        self._update_month_counts()
+
+    def _select_only_current_month(self):
+        self.selected_months = {self.current_month}
+        self._update_month_counts()
+
+    def _select_all_months(self):
+        self.selected_months = set(range(1, 13))
+        self._update_month_counts()
+
+    def _clear_all_months(self):
+        self.selected_months = set()
+        self._update_month_counts()
+
+    def _update_month_counts(self):
+        sel_year = self.year_combo.currentData()
+        counts = {m: 0 for m in range(1, 13)}
+
+        for item, dt, is_folder in self.items_with_dates:
+            if dt and not is_folder:
+                if sel_year is None or dt.year == sel_year:
+                    counts[dt.month] = counts.get(dt.month, 0) + 1
+
+        is_dark = (CURRENT_THEME_MODE == "dark")
+        btn_bg = "#2e2e38" if is_dark else "#ffffff"
+        btn_hover = "#3e3e4a" if is_dark else "#e8eef5"
+        text_color = "#ffffff" if is_dark else "#111827"
+        dim_text = "#6b7280" if is_dark else "#9ca3af"
+        border_color = "#383842" if is_dark else "#cbd5e1"
+        accent_color = ACCENT
+
+        total_selected_files = 0
+        for m_num, (btn, m_short, m_full) in self.month_buttons.items():
+            c = counts.get(m_num, 0)
+            is_checked = (m_num in self.selected_months)
+            btn.setChecked(is_checked)
+
+            if is_checked:
+                total_selected_files += c
+                btn.setText(f"✓ {m_short} ({c})" if c > 0 else f"✓ {m_short}")
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {accent_color}, stop:1 #5856d6);
+                        color: #ffffff;
+                        font-weight: 800;
+                        font-size: 11px;
+                        border: 2px solid #30d158;
+                        border-radius: 6px;
+                    }}
+                    QPushButton:hover {{
+                        background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0077ed, stop:1 #4745c4);
+                    }}
+                """)
+            else:
+                btn.setText(f"{m_short} ({c})" if c > 0 else f"{m_short}")
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: {btn_bg};
+                        color: {text_color if c > 0 else dim_text};
+                        font-weight: {700 if c > 0 else 500};
+                        font-size: 11px;
+                        border: 1.5px solid {border_color};
+                        border-radius: 6px;
+                    }}
+                    QPushButton:hover {{
+                        background: {btn_hover};
+                        border-color: {accent_color};
+                    }}
+                """)
+
+        # Update Summary Label and Apply Button
+        if len(self.selected_months) == 0:
+            self.summary_lbl.setText("⚠️ Select at least 1 month")
+            self.summary_lbl.setStyleSheet("font-size: 12px; font-weight: 600; color: #ff9f0a; background: transparent;")
+            self.apply_btn.setEnabled(False)
+            self.apply_btn.setText("Apply Selection")
+        else:
+            months_text = format_months_label(self.selected_months)
+            self.summary_lbl.setText(f"✓ {months_text} ({total_selected_files} files)")
+            self.summary_lbl.setStyleSheet(f"font-size: 12px; font-weight: 700; color: {'#30d158' if is_dark else '#15803d'}; background: transparent;")
+            self.apply_btn.setEnabled(True)
+            self.apply_btn.setText(f"Apply Selection ({total_selected_files})")
+
+    def _on_apply_clicked(self):
+        if not self.selected_months:
+            return
+        self.selected_year = self.year_combo.currentData()
+        if len(self.selected_months) == 12:
+            self.selected_month = "all"
+        else:
+            self.selected_month = set(self.selected_months)
+        self.accept()
+
+
 # ── Settings Dialog ───────────────────────────────────────────────────────────
 class SettingsDialog(QDialog):
     """Settings window with About info and iOS-style toggleable options."""
@@ -6988,8 +7592,16 @@ class ImageCaptureClone(QMainWindow):
         self.btn_compare_copy.installEventFilter(self)
         self.btn_compare_copy.clicked.connect(self._handle_compare_copy_action)
 
+        self.btn_select_month = QPushButton("Select by Month 📅")
+        self.btn_select_month.setCursor(Qt.PointingHandCursor)
+        select_month_alt = "HOW TO USE: 1) Click 'Select by Month 📅'. 2) Choose a month (1-12, Current Month, or All). 3) Only files from that month will be selected in the active panel, ready for transfer or organization."
+        self.btn_select_month.setToolTip(select_month_alt)
+        self.btn_select_month.installEventFilter(self)
+        self.btn_select_month.clicked.connect(self._handle_select_by_month_action)
+
         iphone_lay.addWidget(self.btn_copy_loc)
         iphone_lay.addWidget(self.btn_compare_copy)
+        iphone_lay.addWidget(self.btn_select_month)
 
         # Special Commands Expandable Container (sub-buttons show under button when clicked!)
         self.special_cmd_btn = QPushButton("✨ Special Commands ▼")
@@ -7095,9 +7707,10 @@ class ImageCaptureClone(QMainWindow):
         self.register_button_alt_text(self.theme_btn, "🎨 Theme: Click to switch between Dark Mode and Light Mode. Your preference is saved automatically for next launch.")
         self.register_button_alt_text(self.settings_btn, "⚙️ Settings: Open the Settings window to configure Dark Mode, Special Commands visibility, Sound Effects, Robot Tips, and more. Your preferences are saved automatically.")
         self.register_button_alt_text(self.quit_btn, "🚪 Quit: Click to save your current session (panel positions, folder paths, selections) and exit Marko Polo Explorer. Everything is restored on next launch!")
-        self.register_button_alt_text(self.iphone_cmd_btn, "📱 iPhone Commands: Click to expand/collapse iPhone action buttons (Copy to Location, Compare & Copy). Use these to transfer files from your phone.")
+        self.register_button_alt_text(self.iphone_cmd_btn, "📱 iPhone Commands: Click to expand/collapse iPhone action buttons (Copy to Location, Compare & Copy, Select by Month). Use these to transfer files from your phone.")
         self.register_button_alt_text(self.btn_copy_loc, "📥 Copy to Location: HOW TO USE: 1) Select files in the iPhone/Source panel. 2) Navigate to your desired destination in the Local panel. 3) Click 'Copy to Location' — selected files will be copied to the local folder.")
         self.register_button_alt_text(self.btn_compare_copy, "🔍 Compare & Copy: HOW TO USE: 1) Make sure both panels are visible and navigated to folders. 2) Click 'Compare & Copy' — it will scan both panels and only copy files that are missing from the destination, skipping duplicates.")
+        self.register_button_alt_text(self.btn_select_month, "📅 Select by Month: Click to select files from a specific month (1-12), Current Month, or All. Perfect for picking and transferring a specific month of photos!")
         self.register_button_alt_text(self.special_cmd_btn, "✨ Special Commands: Click to expand/collapse special action buttons (Magic Folders, extract .png, extract videos, etc). These are power tools for organizing your files!")
         self.register_button_alt_text(self.btn_del_dups, "🗑️ Delete Duplicates: HOW TO USE: 1) Navigate to a folder in the Local panel that has duplicate files with (_1) suffix. 2) Click 'Del duplicates (_1)' — all files ending with _1 before the extension will be found and deleted.")
         self.register_button_alt_text(self.btn_magic, "🪄 Magic Folders: HOW TO USE: 1) Navigate to a folder with files in the Local panel. 2) Select the files you want organized (or use Select All). 3) Click 'Magic Folders' — files are sorted into monthly subfolders (e.g. 2025-01, 2025-02) by their date. Undo anytime with 'Undo Magic Folder'!")
@@ -7206,6 +7819,8 @@ class ImageCaptureClone(QMainWindow):
         self.iphone_cmd_btn.setStyleSheet(mid_btn_style(ACCENT))
         self.btn_copy_loc.setStyleSheet(mid_btn_style(ACCENT))
         self.btn_compare_copy.setStyleSheet(mid_btn_style(ACCENT))
+        if hasattr(self, "btn_select_month"):
+            self.btn_select_month.setStyleSheet(mid_btn_style(ACCENT))
 
         self.special_cmd_btn.setStyleSheet(mid_btn_style("#af52de"))
         self.btn_del_dups.setStyleSheet(mid_btn_style("#ff9f0a"))
@@ -8564,6 +9179,45 @@ class ImageCaptureClone(QMainWindow):
     def _handle_compare_copy_action(self):
         self._compare_and_copy_to_mac()
 
+    def _handle_select_by_month_action(self):
+        active_panel = self.iphone_panel if self.active_panel == "left" else self.local_panel
+        panel_name = "Source (iPhone)" if self.active_panel == "left" else "Local Destination"
+
+        items_with_dates = active_panel.get_items_with_dates()
+        if not items_with_dates:
+            if hasattr(self, "speech_bubble"):
+                self.speech_bubble.setText(f"ℹ️ No files found in the active panel ({panel_name})!")
+            if hasattr(self, "robot_widget"):
+                self.robot_widget.look_towards(0, 3, happy=False)
+            QMessageBox.information(
+                self,
+                "No Files",
+                f"No files were found in the active panel ({panel_name}).\n\n"
+                "Please make sure files are loaded before selecting by month."
+            )
+            return
+
+        dlg = MonthSelectDialog(items_with_dates, parent=self, active_panel_name=panel_name)
+        if dlg.exec() == QDialog.Accepted:
+            month = dlg.selected_month
+            year = dlg.selected_year
+            count = active_panel.select_by_month(month, year)
+
+            month_label = format_months_label(month, year)
+
+            if count > 0:
+                msg = f"Selected {count} file(s) for {month_label} in {panel_name}."
+                self.status_msg.setText(msg)
+                if hasattr(self, "speech_bubble"):
+                    self.speech_bubble.setText(f"📅 Selected {count} file(s) for {month_label}! Ready to copy.")
+                if hasattr(self, "robot_widget"):
+                    self.robot_widget.look_towards(0, 0, happy=True)
+            else:
+                msg = f"No files found matching {month_label} in {panel_name}."
+                self.status_msg.setText(msg)
+                if hasattr(self, "speech_bubble"):
+                    self.speech_bubble.setText(f"ℹ️ No files found for {month_label}.")
+
     # ── Download Operations ───────────────────────────────────────────────────
     def download_selected_to_destination(self):
         if self.active_panel == "right":
@@ -8658,7 +9312,18 @@ class ImageCaptureClone(QMainWindow):
                 elif choice == "skip":
                     self._skip_file(file_obj)
                     return
-                # If "overwrite", proceed
+                elif choice == "cancel":
+                    self._finish_downloads()
+                    self.status_msg.setText("Transfer canceled by user.")
+                    return
+
+            # If overwrite or overwrite_all, delete old destination file first to ensure fresh overwrite
+            if self.overwrite_policy in ("overwrite", "overwrite_all") or (self.overwrite_policy == "ask" and locals().get("choice") == "overwrite"):
+                try:
+                    if os.path.exists(dest_filepath):
+                        os.unlink(dest_filepath)
+                except Exception as e:
+                    print(f"Error removing existing file before overwrite: {e}")
                 
         self.status_msg.setText(f"Copying {self.download_count + 1}/{self.total_downloads} — {file_obj.name()}…")
         
@@ -9053,7 +9718,18 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
                 elif choice == "skip":
                     self._skip_file(file_obj)
                     return
-                # If "overwrite", proceed
+                elif choice == "cancel":
+                    self._finish_magic_downloads()
+                    self.status_msg.setText("Magic Transfer canceled by user.")
+                    return
+
+            # If overwrite or overwrite_all, delete old destination file first to ensure fresh overwrite
+            if self.overwrite_policy in ("overwrite", "overwrite_all") or (self.overwrite_policy == "ask" and locals().get("choice") == "overwrite"):
+                try:
+                    if os.path.exists(dest_filepath):
+                        os.unlink(dest_filepath)
+                except Exception as e:
+                    print(f"Error removing existing file before overwrite: {e}")
                 
         try:
             os.makedirs(dest_dir, exist_ok=True)
@@ -9371,17 +10047,52 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
     def _prompt_overwrite(self, filename):
         msg_box = QMessageBox(self)
         msg_box.setWindowTitle("File Already Exists")
-        msg_box.setText(f"The file '{filename}' already exists in the destination folder.\nWhat would you like to do?")
+        msg_box.setText(f"The file '{filename}' already exists in the destination folder.\n\nWhat would you like to do?")
         
         markopolo_path = os.path.join(script_dir, "markopolo.png")
         if os.path.exists(markopolo_path):
             pix = QPixmap(markopolo_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             msg_box.setIconPixmap(pix)
         
-        overwrite_btn = msg_box.addButton("Overwrite", QMessageBox.YesRole)
-        overwrite_all_btn = msg_box.addButton("Overwrite All", QMessageBox.YesRole)
-        skip_btn = msg_box.addButton("Skip", QMessageBox.NoRole)
-        skip_all_btn = msg_box.addButton("Skip All", QMessageBox.NoRole)
+        overwrite_btn = msg_box.addButton("⚡ Overwrite", QMessageBox.YesRole)
+        overwrite_all_btn = msg_box.addButton("⚡ Overwrite All", QMessageBox.YesRole)
+        skip_btn = msg_box.addButton("⏭️ Skip", QMessageBox.NoRole)
+        skip_all_btn = msg_box.addButton("⏭️ Skip All", QMessageBox.NoRole)
+        cancel_btn = msg_box.addButton("Cancel", QMessageBox.RejectRole)
+        msg_box.setDefaultButton(overwrite_btn)
+
+        is_dark = (CURRENT_THEME_MODE == "dark")
+        bg_color = "#1e1e24" if is_dark else "#ffffff"
+        text_color = "#ffffff" if is_dark else "#111827"
+        btn_bg = "#2e2e38" if is_dark else "#edf2f7"
+        border_color = "#383842" if is_dark else "#cbd5e1"
+
+        msg_box.setStyleSheet(f"""
+            QMessageBox {{
+                background-color: {bg_color};
+                color: {text_color};
+            }}
+            QLabel {{
+                color: {text_color};
+                font-size: 13px;
+                font-weight: 500;
+            }}
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {text_color};
+                border: 1px solid {border_color};
+                border-radius: 6px;
+                padding: 6px 14px;
+                font-size: 12px;
+                font-weight: 600;
+                min-width: 90px;
+            }}
+            QPushButton:hover {{
+                background-color: {ACCENT};
+                color: #ffffff;
+                border-color: {ACCENT};
+            }}
+        """)
         
         msg_box.exec()
         
@@ -9394,6 +10105,8 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
             return "skip"
         elif clicked == skip_all_btn:
             return "skip_all"
+        elif clicked == cancel_btn:
+            return "cancel"
         return "skip"
 
     def _skip_file(self, file_object):
@@ -9689,6 +10402,8 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
                             continue
                         elif choice == "skip":
                             continue
+                        elif choice == "cancel":
+                            break
 
                 try:
                     if os.path.exists(dest_path):
@@ -9720,6 +10435,8 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
             self.copy_btn.setEnabled(enabled)
         if hasattr(self, "compare_copy_btn"):
             self.compare_copy_btn.setEnabled(enabled)
+        if hasattr(self, "btn_select_month"):
+            self.btn_select_month.setEnabled(enabled)
         if hasattr(self, "mid_extract_png"):
             self.mid_extract_png.setEnabled(enabled)
         if hasattr(self, "mid_magic"):
@@ -9734,16 +10451,21 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
                 self.mid_fwd.setEnabled(False)
 
     def _compare_and_copy_to_mac(self):
-        # If there are selected files, only compare/copy the selection. Otherwise, compare/copy all loaded/filtered files.
-        if self.iphone_panel.has_selection():
+        # If there are selected files (e.g. via Select by Month), compare only the selected files.
+        # Otherwise, compare all loaded/filtered files in the Source panel.
+        is_selection = self.iphone_panel.has_selection()
+        if is_selection:
             iphone_files = self.iphone_panel.get_selected()
         else:
-            iphone_files = self.iphone_panel._filtered_files()
+            if self.iphone_panel.mode == "local":
+                iphone_files = [p for p, is_f in self.iphone_panel._filtered_items() if not is_f and p != ".."]
+            else:
+                iphone_files = self.iphone_panel._filtered_files()
             
         if not iphone_files:
             QMessageBox.information(
                 self, "No Files",
-                "There are no files loaded in the iPhone panel on the left to copy."
+                "There are no files loaded in the Source panel on the left to compare."
             )
             return
 
@@ -9755,8 +10477,20 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
             )
             return
 
-        self.status_msg.setText("Comparing files between iPhone and local directory…")
+        scope_desc = f"from your {len(iphone_files)} selected file(s)" if is_selection else f"from Source panel ({len(iphone_files)} files)"
+        self.status_msg.setText(f"Comparing {scope_desc} with local destination folder…")
         QApplication.processEvents()
+
+        def _extract_item_name(item):
+            if isinstance(item, str):
+                return Path(item).name
+            if hasattr(item, "name"):
+                try:
+                    val = item.name()
+                    return val if isinstance(val, str) else str(val)
+                except TypeError:
+                    return str(getattr(item, "name", ""))
+            return Path(str(item)).name
 
         local_filenames = set()
         try:
@@ -9771,8 +10505,8 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
 
         to_copy = []
         for file_obj in iphone_files:
-            name = file_obj.name()
-            if name.lower() not in local_filenames:
+            name = _extract_item_name(file_obj)
+            if name and name.lower() not in local_filenames:
                 to_copy.append(file_obj)
 
         # Build Compare & Copy Options popup window with explicit copy action buttons
@@ -9791,18 +10525,18 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
         if missing_count > 0:
             msg_box.setText(
                 f"Comparison Results:\n\n"
-                f"• {missing_count} missing file(s) found on Source panel.\n"
+                f"• {missing_count} missing file(s) found {scope_desc}.\n"
                 f"• {existing_count} file(s) already exist in destination folder.\n\n"
                 f"Select an option to proceed with copying:"
             )
             btn_missing = msg_box.addButton(f"Copy Missing Files ({missing_count})", QMessageBox.AcceptRole)
-            btn_all = msg_box.addButton(f"Copy All Files ({total_scanned})", QMessageBox.YesRole)
+            btn_all = msg_box.addButton(f"Copy All ({total_scanned})", QMessageBox.YesRole)
             btn_cancel = msg_box.addButton("Cancel", QMessageBox.RejectRole)
             msg_box.setDefaultButton(btn_missing)
         else:
             msg_box.setText(
                 f"Comparison Results:\n\n"
-                f"• All {total_scanned} file(s) are already present in the destination directory.\n\n"
+                f"• All {total_scanned} file(s) {scope_desc} already exist in the destination directory.\n\n"
                 f"Would you like to copy/overwrite all files anyway?"
             )
             btn_missing = None
@@ -9814,13 +10548,36 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
         clicked = msg_box.clickedButton()
 
         if btn_missing and clicked == btn_missing:
-            self.overwrite_policy = "ask"
-            self._start_download_queue(to_copy)
+            items_to_copy = to_copy
         elif clicked == btn_all:
-            self.overwrite_policy = "ask"
-            self._start_download_queue(iphone_files)
+            items_to_copy = iphone_files
         else:
             self.status_msg.setText("Compare & copy canceled.")
+            return
+
+        if self.iphone_panel.mode == "local":
+            copied_count = 0
+            for p_src in items_to_copy:
+                if not p_src or not os.path.exists(p_src):
+                    continue
+                dest = os.path.join(dest_dir, Path(p_src).name)
+                try:
+                    if os.path.isdir(p_src):
+                        shutil.copytree(p_src, dest, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(p_src, dest)
+                    copied_count += 1
+                except Exception as e:
+                    print(f"Error copying {p_src}: {e}")
+            self.status_msg.setText(f"Copied {copied_count} missing file(s) to destination.")
+            if hasattr(self, "speech_bubble"):
+                self.speech_bubble.setText(f"✅ Successfully copied {copied_count} missing file(s)!")
+            if hasattr(self, "robot_widget"):
+                self.robot_widget.look_towards(0, 0, happy=True)
+            self.local_panel.refresh()
+        else:
+            self.overwrite_policy = "ask"
+            self._start_download_queue(items_to_copy)
 
     def _refresh_both(self):
         if self.demo_mode:
