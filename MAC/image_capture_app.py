@@ -460,6 +460,122 @@ class AndroidCameraFile:
     def thumbnailData(self):
         return None
 
+# ── Windows WPD (Apple iPhone / Portable Device) Representation ───────────────
+class WindowsWPDCameraFile:
+    def __init__(self, name, size=0, folder="", device_name="Apple iPhone", is_simulated=False):
+        self._name = name
+        self._size = size
+        self.folder = folder
+        self.device_name = device_name
+        self.is_simulated = is_simulated
+        self._creation = datetime.now()
+
+    def name(self):
+        return self._name
+
+    def fileSize(self):
+        return self._size
+
+    def creationDate(self):
+        return self._creation
+
+    def thumbnailData(self):
+        return None
+
+class WindowsWPDScanWorker(QThread):
+    scan_complete = Signal(str, list)
+    scan_error = Signal(str)
+
+    def __init__(self, target_device=None, parent=None):
+        super().__init__(parent)
+        self.target_device = target_device
+
+    def run(self):
+        ps_script = r"""
+$ErrorActionPreference = 'SilentlyContinue'
+$shell = New-Object -ComObject Shell.Application
+$thisPC = $shell.NameSpace(17)
+$dev = $null
+if ($thisPC) {
+    foreach ($item in $thisPC.Items()) {
+        if ($item.Name -match "iPhone|Apple|iPad|Portable|Camera") {
+            $dev = $item
+            break
+        }
+    }
+}
+
+if (-not $dev) {
+    Write-Output "[]"
+    exit
+}
+
+$devName = $dev.Name
+$files = @()
+
+function Scan-FolderItems($folder, $depth) {
+    if ($depth -gt 6) { return }
+    $items = $folder.Items()
+    if (-not $items) { return }
+    foreach ($it in $items) {
+        if ($it.IsFolder) {
+            Scan-FolderItems $it.GetFolder ($depth + 1)
+        } else {
+            $fn = $it.Name
+            $ext = [System.IO.Path]::GetExtension($fn).ToLower()
+            if ($ext -match "\.(jpg|jpeg|png|heic|mov|mp4|dng|raw|arw|m4v|gif|webp|avi)$") {
+                $sz = 0
+                try { $sz = [int64]$it.Size } catch {}
+                if ($sz -le 0) {
+                    try {
+                        $szStr = $folder.GetDetailsOf($it, 1)
+                        if ($szStr -match "([\d\.\,]+)\s*(KB|MB|GB|B)?") {
+                            $num = [double]($matches[1] -replace ",","")
+                            $unit = $matches[2]
+                            if ($unit -eq "KB") { $sz = [int64]($num * 1024) }
+                            elseif ($unit -eq "MB") { $sz = [int64]($num * 1024 * 1024) }
+                            elseif ($unit -eq "GB") { $sz = [int64]($num * 1024 * 1024 * 1024) }
+                            else { $sz = [int64]$num }
+                        }
+                    } catch {}
+                }
+                $files += [PSCustomObject]@{
+                    name = $fn
+                    size = $sz
+                    folder = $folder.Title
+                    device = $devName
+                }
+            }
+        }
+    }
+}
+
+Scan-FolderItems $dev.GetFolder 0
+$files | ConvertTo-Json -Compress
+"""
+        try:
+            cmd = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_script]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
+            stdout = res.stdout.strip()
+            if not stdout or stdout == "[]":
+                self.scan_complete.emit("", [])
+                return
+            data = json.loads(stdout)
+            if isinstance(data, dict):
+                data = [data]
+            wpd_files = []
+            device_name = "Apple iPhone"
+            for item in data:
+                fn = item.get("name", "")
+                sz = int(item.get("size", 0))
+                folder = item.get("folder", "")
+                device_name = item.get("device", device_name)
+                if fn:
+                    wpd_files.append(WindowsWPDCameraFile(fn, sz, folder=folder, device_name=device_name))
+            self.scan_complete.emit(device_name, wpd_files)
+        except Exception as e:
+            self.scan_error.emit(str(e))
+
 # ── PyObjC Delegates ─────────────────────────────────────────────────────────
 if HAS_PYOBJC:
     class DeviceBrowserDelegate(NSObject):
@@ -3921,7 +4037,15 @@ class FilePanel(QWidget):
             mw._refresh_both()
 
     def refresh(self):
-        if self.mode in ("iphone", "android"):
+        if self.mode == "iphone":
+            mw = self.window()
+            if mw and hasattr(mw, "_start_device_scanning"):
+                mw._start_device_scanning()
+            return
+        elif self.mode == "android":
+            mw = self.window()
+            if mw and hasattr(mw, "_start_android_scanning"):
+                mw._start_android_scanning()
             return
         if not self.current_path: return
         p = Path(self.current_path)
@@ -8088,20 +8212,21 @@ class ImageCaptureClone(QMainWindow):
         """)
 
     def _init_manager(self):
-        if not HAS_PYOBJC:
-            self.status_msg.setText("PyObjC missing. Running in simulator-only mode.")
-            self._toggle_demo_mode()
-            return
-
-        self.manager = ImageCaptureManager()
-        self.manager.device_found_signal.connect(self._on_device_found, Qt.QueuedConnection)
-        self.manager.device_removed_signal.connect(self._on_device_removed, Qt.QueuedConnection)
-        self.manager.items_added_signal.connect(self._on_items_added, Qt.QueuedConnection)
-        self.manager.session_opened_signal.connect(self._on_session_opened, Qt.QueuedConnection)
-        self.manager.session_closed_signal.connect(self._on_session_closed, Qt.QueuedConnection)
-        self.manager.device_ready_signal.connect(self._on_device_ready, Qt.QueuedConnection)
-        self.manager.file_downloaded_signal.connect(self._on_file_downloaded, Qt.QueuedConnection)
-        self.status_msg.setText("Ready. Local files loaded.")
+        if HAS_PYOBJC:
+            self.manager = ImageCaptureManager()
+            self.manager.device_found_signal.connect(self._on_device_found, Qt.QueuedConnection)
+            self.manager.device_removed_signal.connect(self._on_device_removed, Qt.QueuedConnection)
+            self.manager.items_added_signal.connect(self._on_items_added, Qt.QueuedConnection)
+            self.manager.session_opened_signal.connect(self._on_session_opened, Qt.QueuedConnection)
+            self.manager.session_closed_signal.connect(self._on_session_closed, Qt.QueuedConnection)
+            self.manager.device_ready_signal.connect(self._on_device_ready, Qt.QueuedConnection)
+            self.manager.file_downloaded_signal.connect(self._on_file_downloaded, Qt.QueuedConnection)
+            self.status_msg.setText("Ready. Local files loaded.")
+        else:
+            self.manager = None
+            self.status_msg.setText("Ready. Local files loaded.")
+            if platform.system() == "Windows":
+                self._start_device_scanning()
 
     def _start_device_scanning(self):
         if HAS_PYOBJC and self.manager:
@@ -8110,8 +8235,33 @@ class ImageCaptureClone(QMainWindow):
             self.active_devices.clear()
             self.manager.stop_scanning()
             self.manager.start_scanning()
+        elif platform.system() == "Windows":
+            self.status_msg.setText("Scanning for connected Apple iPhone on Windows USB…")
+            self.iphone_panel.update_devices(["🔍 Scanning for Apple iPhone…"])
+            self._wpd_worker = WindowsWPDScanWorker(parent=self)
+            self._wpd_worker.scan_complete.connect(self._on_windows_wpd_scan_complete)
+            self._wpd_worker.scan_error.connect(self._on_windows_wpd_scan_error)
+            self._wpd_worker.start()
         else:
-            self._toggle_demo_mode()
+            self.status_msg.setText("No USB camera framework available.")
+            self.iphone_panel.update_devices(["📱 No iPhone detected"])
+
+    def _on_windows_wpd_scan_complete(self, device_name, wpd_files):
+        if wpd_files:
+            dev_label = f"📱 {device_name}" if device_name else "📱 Apple iPhone"
+            self.iphone_panel.update_devices([dev_label], 0)
+            self.iphone_panel.load_files(wpd_files)
+            self.status_msg.setText(f"Connected to {dev_label}. Found {len(wpd_files)} media files.")
+        else:
+            self.iphone_panel.update_devices(["📱 No iPhone detected (Connect via USB & tap Trust)"])
+            self.iphone_panel.load_files([])
+            self.status_msg.setText("No Apple iPhone detected on USB. Unlock your iPhone, connect via USB cable, and tap 'Trust This Computer'.")
+
+    def _on_windows_wpd_scan_error(self, err_msg):
+        print(f"Windows WPD scan error: {err_msg}")
+        self.iphone_panel.update_devices(["📱 No iPhone detected"])
+        self.iphone_panel.load_files([])
+        self.status_msg.setText("Make sure your iPhone is unlocked, connected via USB, and trusted.")
 
     def _start_android_scanning(self):
         self.iphone_panel.clear()
@@ -8506,14 +8656,63 @@ class ImageCaptureClone(QMainWindow):
         self.status_msg.setText(f"Copying {self.download_count + 1}/{self.total_downloads} — {file_obj.name()}…")
         
         is_android = (getattr(self.iphone_panel, "mode", "") == "android")
+        is_wpd = isinstance(file_obj, WindowsWPDCameraFile) or getattr(file_obj, "device_name", None)
         is_sim = self.demo_mode or getattr(file_obj, "is_simulated", False) or (is_android and not getattr(file_obj, "remote_path", None))
 
         if is_sim:
             QTimer.singleShot(400, lambda: self._on_simulated_download_complete(file_obj))
+        elif is_wpd:
+            self._download_windows_wpd_file(file_obj)
         elif getattr(file_obj, "remote_path", None) and getattr(file_obj, "serial", None):
             self._download_android_file_adb(file_obj)
-        else:
+        elif HAS_PYOBJC and self.manager:
             self.manager.download_file(file_obj, self.active_download_dest)
+        else:
+            self._download_windows_wpd_file(file_obj)
+
+    def _download_windows_wpd_file(self, file_obj):
+        dest_filepath = os.path.join(self.active_download_dest, file_obj.name())
+        ps_script = f"""
+$ErrorActionPreference = 'SilentlyContinue'
+$shell = New-Object -ComObject Shell.Application
+$thisPC = $shell.NameSpace(17)
+$dev = $null
+if ($thisPC) {{
+    foreach ($item in $thisPC.Items()) {{
+        if ($item.Name -match "iPhone|Apple|iPad|Portable|Camera") {{
+            $dev = $item
+            break
+        }}
+    }}
+}}
+if (-not $dev) {{ exit 1 }}
+$destFolder = $shell.NameSpace('{self.active_download_dest.replace("'", "''")}')
+if (-not $destFolder) {{ exit 1 }}
+
+function Copy-ItemRecursive($folder, $depth) {{
+    if ($depth -gt 6) {{ return $false }}
+    $items = $folder.Items()
+    if (-not $items) {{ return $false }}
+    foreach ($it in $items) {{
+        if ($it.IsFolder) {{
+            if (Copy-ItemRecursive $it.GetFolder ($depth + 1)) {{ return $true }}
+        }} elseif ($it.Name -eq '{file_obj.name().replace("'", "''")}') {{
+            $destFolder.CopyHere($it, 20)
+            return $true
+        }}
+    }}
+    return $false
+}}
+
+$res = Copy-ItemRecursive $dev.GetFolder 0
+if ($res) {{ exit 0 }} else {{ exit 1 }}
+"""
+        try:
+            cmd = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_script]
+            subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        except Exception as e:
+            print(f"Error copying WPD file: {e}")
+        self._on_file_downloaded(file_obj.name(), None)
 
     def _download_android_file_adb(self, file_obj):
         adb_path = shutil.which("adb")
