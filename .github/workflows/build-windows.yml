@@ -3,8 +3,10 @@ name: Build Windows Standalone EXE
 on:
   workflow_dispatch:        # run manually from the GitHub "Actions" tab
   push:
+    branches:
+      - main
     tags:
-      - "v*"                # or automatically when you push a tag like v08082616
+      - "v*"
 
 jobs:
   build-windows:
