@@ -98,7 +98,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import (
     Qt, QThread, Signal, QTimer, QSize, QPoint, QRunnable, QThreadPool, QObject, Slot, QMimeData, QRect, QEvent, QUrl,
-    QItemSelection, QItemSelectionModel
+    QItemSelection, QItemSelectionModel, QPropertyAnimation, QEasingCurve, Property
 )
 from PySide6.QtGui import (
     QPixmap, QColor, QPainter, QFont, QIcon, QPen, QBrush, QImage, QImageReader, QDesktopServices,
@@ -132,7 +132,7 @@ import urllib.request
 import urllib.parse
 import zipfile
 
-__version__ = "08082615"
+__version__ = "13082620"
 DEFAULT_UPDATE_CHECK_URL = "http://marko.com.hr/markopolo/version.json"
 
 
@@ -247,7 +247,7 @@ DARK_THEME = {
     "ACCENT2":  "#30c7ff",
     "BORDER":   "#2a2a2a",
     "TEXT":     "#f0f0f0",
-    "SUBTEXT":  "#888888",
+    "SUBTEXT":  "#a1a1aa",
     "DOT_DONE":    "#30d158",
     "DOT_PENDING": "#ff453a",
     "DOT_COPY":    "#ff9f0a",
@@ -4572,6 +4572,7 @@ class FilePanel(QWidget):
                         if item:
                             self.table.scrollToItem(item)
                         break
+            self._update_status_labels()
         else:
             for card in self._cards:
                 c_item = card.path if self.mode == "local" else card.file_object
@@ -4580,58 +4581,158 @@ class FilePanel(QWidget):
                 if c_item == target_path_or_file or c_str == target_str or c_base == target_base:
                     card.set_selected(True)
                     self.selected_cards.add(c_item)
+                    if hasattr(self, "scroll") and self.scroll:
+                        self.scroll.ensureWidgetVisible(card)
                 else:
                     card.set_selected(False)
-        self.sel_lbl.setText(f"{len(self.selected_cards)} selected" if self.selected_cards else "")
+            self.sel_lbl.setText(f"{len(self.selected_cards)} selected" if self.selected_cards else "")
         self.update_preview()
 
     def select_next_item(self):
-        items = self._filtered_items() if self.mode == "local" else self._filtered_files()
-        if not items:
-            return
-        selected = self.get_selected()
-        if not selected:
-            idx = 0
-        else:
-            first = selected[0]
-            if self.mode == "local":
-                paths = [it[0] for it in items]
-                try:
-                    idx = (paths.index(first) + 1) % len(paths)
-                except ValueError:
-                    idx = 0
+        if self.view_mode == "details":
+            total = self.table.rowCount()
+            if total == 0:
+                return
+            selected_rows = self.table.selectionModel().selectedRows()
+            if not selected_rows:
+                next_row = 0
             else:
-                try:
-                    idx = (items.index(first) + 1) % len(items)
-                except ValueError:
-                    idx = 0
-        target = items[idx][0] if self.mode == "local" else items[idx]
-        self.select_path(target)
-        self.update_preview()
+                curr_row = selected_rows[-1].row()
+                next_row = (curr_row + 1) if (curr_row + 1 < total) else 0
+            self.table.clearSelection()
+            self.table.selectRow(next_row)
+            item = self.table.item(next_row, 0)
+            if item:
+                self.table.setCurrentItem(item)
+                self.table.scrollToItem(item)
+            self._update_status_labels()
+            self.update_preview()
+        else:
+            if not self._cards:
+                return
+            selected_indices = [i for i, c in enumerate(self._cards) if getattr(c, "is_selected", False)]
+            if not selected_indices:
+                next_idx = 0
+            else:
+                next_idx = (selected_indices[-1] + 1) if (selected_indices[-1] + 1 < len(self._cards)) else 0
+            self.selected_cards.clear()
+            for i, card in enumerate(self._cards):
+                if i == next_idx:
+                    card.set_selected(True)
+                    c_item = card.path if self.mode == "local" else card.file_object
+                    self.selected_cards.add(c_item)
+                    if hasattr(self, "scroll") and self.scroll:
+                        self.scroll.ensureWidgetVisible(card)
+                else:
+                    card.set_selected(False)
+            self.sel_lbl.setText(f"{len(self.selected_cards)} selected" if self.selected_cards else "")
+            self.update_preview()
 
     def select_prev_item(self):
-        items = self._filtered_items() if self.mode == "local" else self._filtered_files()
-        if not items:
-            return
-        selected = self.get_selected()
-        if not selected:
-            idx = 0
-        else:
-            first = selected[0]
-            if self.mode == "local":
-                paths = [it[0] for it in items]
-                try:
-                    idx = (paths.index(first) - 1) % len(paths)
-                except ValueError:
-                    idx = 0
+        if self.view_mode == "details":
+            total = self.table.rowCount()
+            if total == 0:
+                return
+            selected_rows = self.table.selectionModel().selectedRows()
+            if not selected_rows:
+                prev_row = total - 1
             else:
-                try:
-                    idx = (items.index(first) - 1) % len(items)
-                except ValueError:
-                    idx = 0
-        target = items[idx][0] if self.mode == "local" else items[idx]
-        self.select_path(target)
-        self.update_preview()
+                curr_row = selected_rows[0].row()
+                prev_row = (curr_row - 1) if (curr_row - 1 >= 0) else (total - 1)
+            self.table.clearSelection()
+            self.table.selectRow(prev_row)
+            item = self.table.item(prev_row, 0)
+            if item:
+                self.table.setCurrentItem(item)
+                self.table.scrollToItem(item)
+            self._update_status_labels()
+            self.update_preview()
+        else:
+            if not self._cards:
+                return
+            selected_indices = [i for i, c in enumerate(self._cards) if getattr(c, "is_selected", False)]
+            if not selected_indices:
+                prev_idx = len(self._cards) - 1
+            else:
+                prev_idx = (selected_indices[0] - 1) if (selected_indices[0] - 1 >= 0) else (len(self._cards) - 1)
+            self.selected_cards.clear()
+            for i, card in enumerate(self._cards):
+                if i == prev_idx:
+                    card.set_selected(True)
+                    c_item = card.path if self.mode == "local" else card.file_object
+                    self.selected_cards.add(c_item)
+                    if hasattr(self, "scroll") and self.scroll:
+                        self.scroll.ensureWidgetVisible(card)
+                else:
+                    card.set_selected(False)
+            self.sel_lbl.setText(f"{len(self.selected_cards)} selected" if self.selected_cards else "")
+            self.update_preview()
+
+    def open_highlighted_item_or_go_forward(self):
+        """Open the highlighted folder, preview the highlighted file (.jpg, etc.), or go forward in history."""
+        mw = self.window()
+
+        # 1. Details / List mode
+        if self.view_mode == "details":
+            selected_rows = self.table.selectionModel().selectedRows()
+            if selected_rows:
+                row = selected_rows[0].row()
+                if self.mode == "local":
+                    filtered = self._filtered_items()
+                    if 0 <= row < len(filtered):
+                        path, is_folder = filtered[row]
+                        if is_folder:
+                            if path == "..":
+                                self._go_up()
+                                return True
+                            elif isinstance(path, str) and os.path.isdir(path):
+                                self.navigate_to_path(path)
+                                return True
+                        else:
+                            # It's a file (e.g. .jpg, .png, etc.) -> Open in Preview Window
+                            if mw and hasattr(mw, "open_dark_quicklook"):
+                                mw.open_dark_quicklook(self, path)
+                                return True
+                else:
+                    filtered = self._filtered_files()
+                    if 0 <= row < len(filtered):
+                        f = filtered[row]
+                        if hasattr(f, "is_folder") and f.is_folder:
+                            if hasattr(f, "path") and os.path.isdir(f.path):
+                                self.navigate_to_path(f.path)
+                                return True
+                        else:
+                            # iPhone file -> Open in Preview Window
+                            if mw and hasattr(mw, "open_dark_quicklook"):
+                                mw.open_dark_quicklook(self, f)
+                                return True
+        else:
+            # 2. Grid mode
+            selected_cards = [c for c in self._cards if getattr(c, "is_selected", False)]
+            if selected_cards:
+                card = selected_cards[0]
+                if getattr(card, "is_folder", False):
+                    if getattr(card, "path", None) == "..":
+                        self._go_up()
+                        return True
+                    elif hasattr(card, "path") and isinstance(card.path, str) and os.path.isdir(card.path):
+                        self.navigate_to_path(card.path)
+                        return True
+                else:
+                    # Highlighted file card (.jpg, .png, etc.) -> Open in Preview Window
+                    target = card.path if self.mode == "local" else getattr(card, "file_object", None)
+                    if target and mw and hasattr(mw, "open_dark_quicklook"):
+                        mw.open_dark_quicklook(self, target)
+                        return True
+
+        # 3. If no highlighted item, but forward history is available -> go forward in history
+        if hasattr(self, "history_index") and hasattr(self, "history") and self.history_index < len(self.history) - 1:
+            self._go_forward()
+            return True
+
+        return False
+
+    open_selected_folder_or_go_forward = open_highlighted_item_or_go_forward
 
     def select_all(self):
         self.selected_cards.clear()
@@ -5152,6 +5253,11 @@ class SpeechBubbleCloud(QFrame):
         self.setText(text)
 
     def setText(self, text):
+        mw = self.window()
+        if mw and hasattr(mw, "_robot_tips_enabled") and not mw._robot_tips_enabled:
+            self.full_text = text
+            self.label.setText("")
+            return
         if self.full_text == text and self.label.text() == text:
             return
         self.full_text = text
@@ -5159,8 +5265,7 @@ class SpeechBubbleCloud(QFrame):
         self.label.setText("")
         
         # Start Marko Polo GIF animation on parent window
-        mw = self.window()
-        if mw and hasattr(mw, "robot_widget") and mw.robot_widget:
+        if mw and hasattr(mw, "robot_widget") and mw.robot_widget and getattr(mw, "_robot_tips_enabled", True):
             mw.robot_widget.start_animation()
             
         self.type_timer.start()
@@ -5626,7 +5731,20 @@ class UpdateCheckDialog(QDialog):
             f"Release Notes:\n{notes}"
         )
 
-        self.install_btn = QPushButton("📥 Download & Install Update")
+        # Standalone Windows .exe builds can't self-update from the Python zip:
+        # send those users to the website to grab the latest exe instead.
+        is_frozen_windows_exe = (
+            (getattr(sys, "frozen", False) or "__compiled__" in dir())
+            and sys.platform == "win32"
+        )
+
+        if is_frozen_windows_exe:
+            self.install_btn = QPushButton("🌐 Download Latest from Website")
+            self.install_btn.clicked.connect(self._open_download_website)
+        else:
+            self.install_btn = QPushButton("📥 Download & Install Update")
+            self.install_btn.clicked.connect(self.accept)
+
         self.install_btn.setCursor(Qt.PointingHandCursor)
         self.install_btn.setStyleSheet("""
             QPushButton {
@@ -5635,10 +5753,14 @@ class UpdateCheckDialog(QDialog):
             }
             QPushButton:hover { background: #28b84c; border-color: #28b84c; }
         """)
-        self.install_btn.clicked.connect(self.accept)
 
         self.close_btn.setText("Later")
         self.btn_box.insertWidget(0, self.install_btn)
+
+    def _open_download_website(self):
+        import webbrowser
+        webbrowser.open("http://marko.com.hr/markopolo/")
+        self.reject()
 
     def _on_no_update(self):
         self.pbar.hide()
@@ -5653,6 +5775,615 @@ class UpdateCheckDialog(QDialog):
         self.status_title.setStyleSheet("font-size: 15px; font-weight: bold; color: #ff9500;")
         self.details_lbl.setText(f"Could not connect to update server:\n{err}")
         self.close_btn.setText("Close")
+
+
+# ── iOS-Style Toggle Switch Widget ────────────────────────────────────────────
+class ToggleSwitch(QWidget):
+    """An iOS-style animated toggle switch widget."""
+    toggled = Signal(bool)
+
+    def __init__(self, checked=False, parent=None):
+        super().__init__(parent)
+        self._checked = checked
+        self._knob_pos = 1.0 if not checked else 21.0
+        self.setFixedSize(46, 26)
+        self.setCursor(Qt.PointingHandCursor)
+
+        self._animation = QPropertyAnimation(self, b"knob_position")
+        self._animation.setDuration(200)
+        self._animation.setEasingCurve(QEasingCurve.InOutCubic)
+
+    def _get_knob_pos(self):
+        return self._knob_pos
+
+    def _set_knob_pos(self, val):
+        self._knob_pos = val
+        self.update()
+
+    knob_position = Property(float, _get_knob_pos, _set_knob_pos)
+
+    def isChecked(self):
+        return self._checked
+
+    def setChecked(self, checked, animate=True):
+        if self._checked == checked:
+            return
+        self._checked = checked
+        target = 21.0 if checked else 1.0
+        if animate:
+            self._animation.stop()
+            self._animation.setStartValue(self._knob_pos)
+            self._animation.setEndValue(target)
+            self._animation.start()
+        else:
+            self._knob_pos = target
+            self.update()
+
+    def mousePressEvent(self, e):
+        self._checked = not self._checked
+        target = 21.0 if self._checked else 1.0
+        self._animation.stop()
+        self._animation.setStartValue(self._knob_pos)
+        self._animation.setEndValue(target)
+        self._animation.start()
+        self.toggled.emit(self._checked)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+
+        # Track
+        if self._checked:
+            track_color = QColor("#30d158")  # Green when on
+        else:
+            if CURRENT_THEME_MODE == "dark":
+                track_color = QColor(120, 120, 128, 90)
+            else:
+                track_color = QColor(200, 200, 204)
+
+        p.setBrush(QBrush(track_color))
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(0, 0, 46, 26, 13, 13)
+
+        # Knob
+        p.setBrush(QBrush(QColor("#ffffff")))
+        p.setPen(QPen(QColor(0, 0, 0, 25), 0.5))
+        knob_x = self._knob_pos
+        p.drawEllipse(int(knob_x), 1, 24, 24)
+        p.end()
+
+
+# ── Special Commands Confirmation Dialog ─────────────────────────────────────
+class SpecialCommandsConfirmDialog(QDialog):
+    """Custom confirmation dialog for Special Commands with explicit Yes and No buttons."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("⚠️ Special Commands")
+        self.setFixedWidth(460)
+        self.setMinimumHeight(260)
+        self.setModal(True)
+
+        is_dark = (CURRENT_THEME_MODE == "dark")
+        bg_color = "#1e1e1e" if is_dark else "#ffffff"
+        text_color = "#ffffff" if is_dark else "#111111"
+        subtext_color = "#aaaaaa" if is_dark else "#555555"
+        border_color = "#333333" if is_dark else "#d0d0d0"
+        btn_bg = "#2a2a2a" if is_dark else "#eeeeee"
+        btn_hover = "#3a3a3a" if is_dark else "#dddddd"
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_color};
+                border: 1px solid {border_color};
+                border-radius: 12px;
+            }}
+        """)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(28, 28, 28, 24)
+        lay.setSpacing(18)
+
+        # Top area: Emoji icon + Title + Subtitle
+        top_lay = QHBoxLayout()
+        top_lay.setSpacing(16)
+        top_lay.setAlignment(Qt.AlignTop)
+
+        icon_lbl = QLabel("⚠️")
+        icon_lbl.setStyleSheet("font-size: 38px; background: transparent;")
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        top_lay.addWidget(icon_lbl)
+
+        text_lay = QVBoxLayout()
+        text_lay.setSpacing(8)
+
+        q_lbl = QLabel("Are you sure you know what you're doing?")
+        q_lbl.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {text_color}; background: transparent;")
+        q_lbl.setWordWrap(True)
+        text_lay.addWidget(q_lbl)
+
+        info_lbl = QLabel(
+            "Special Commands include tools like deleting duplicate files, "
+            "auto-organizing into folders, and extracting file types.\n\n"
+            "These actions can modify or delete files permanently."
+        )
+        info_lbl.setStyleSheet(f"font-size: 12px; font-weight: 400; color: {subtext_color}; background: transparent;")
+        info_lbl.setWordWrap(True)
+        text_lay.addWidget(info_lbl)
+
+        top_lay.addLayout(text_lay, 1)
+        lay.addLayout(top_lay)
+
+        # Divider
+        div = QFrame()
+        div.setFixedHeight(1)
+        div.setStyleSheet(f"background-color: {border_color};")
+        lay.addWidget(div)
+
+        # Bottom buttons: No (Reject) and Yes (Accept)
+        btn_lay = QHBoxLayout()
+        btn_lay.setSpacing(12)
+        btn_lay.addStretch(1)
+
+        self.no_btn = QPushButton("No")
+        self.no_btn.setCursor(Qt.PointingHandCursor)
+        self.no_btn.setFixedSize(110, 38)
+        self.no_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {btn_bg};
+                color: {text_color};
+                border: 1px solid {border_color};
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 600;
+            }}
+            QPushButton:hover {{
+                background-color: {btn_hover};
+            }}
+        """)
+        self.no_btn.clicked.connect(self.reject)
+        btn_lay.addWidget(self.no_btn)
+
+        self.yes_btn = QPushButton("Yes")
+        self.yes_btn.setCursor(Qt.PointingHandCursor)
+        self.yes_btn.setFixedSize(110, 38)
+        self.yes_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: #30d158;
+                color: #ffffff;
+                border: none;
+                border-radius: 8px;
+                font-size: 14px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background-color: #28c04e;
+            }}
+        """)
+        self.yes_btn.clicked.connect(self.accept)
+        btn_lay.addWidget(self.yes_btn)
+
+        lay.addLayout(btn_lay)
+
+
+# ── Settings Dialog ───────────────────────────────────────────────────────────
+class SettingsDialog(QDialog):
+    """Settings window with About info and iOS-style toggleable options."""
+
+    # Signals emitted when settings change
+    theme_changed = Signal(str)       # "dark" or "light"
+    special_commands_changed = Signal(bool)
+    gjuro_mode_changed = Signal(bool)
+    sound_effects_changed = Signal(bool)
+    robot_tips_changed = Signal(bool)
+    compact_mode_changed = Signal(bool)
+    auto_refresh_changed = Signal(bool)
+
+    def __init__(self, parent=None, settings=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(480)
+        self.setMaximumWidth(560)
+        self.setMinimumHeight(680)
+        self.resize(500, 720)
+        self.setModal(True)
+        self._settings = settings or {}
+        self._toggles = {}
+        self._setup_ui()
+        self._apply_theme()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+
+        # ── Header with app icon and title ──
+        header = QFrame()
+        header_lay = QVBoxLayout(header)
+        header_lay.setContentsMargins(24, 24, 24, 16)
+        header_lay.setSpacing(8)
+        header_lay.setAlignment(Qt.AlignCenter)
+
+        # App icon
+        icon_label = QLabel()
+        icon_path = get_asset_path("markopolo.png")
+        if os.path.exists(icon_path):
+            pix = QPixmap(icon_path).scaled(72, 72, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon_label.setPixmap(pix)
+        icon_label.setAlignment(Qt.AlignCenter)
+        header_lay.addWidget(icon_label)
+
+        title = QLabel("Marko Polo Explorer")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size: 18px; font-weight: 700; padding: 0; margin: 0;")
+        header_lay.addWidget(title)
+        self._title_label = title
+
+        # Version and Update button in a horizontal layout
+        ver_lay = QHBoxLayout()
+        ver_lay.setSpacing(10)
+        ver_lay.setAlignment(Qt.AlignCenter)
+
+        ver = QLabel(f"Version {__version__}")
+        ver.setAlignment(Qt.AlignCenter)
+        ver.setStyleSheet("font-size: 12px; font-weight: 500; padding: 0; margin: 0;")
+        ver_lay.addWidget(ver)
+        self._ver_label = ver
+
+        update_btn = QPushButton("🔄 Check for Updates")
+        update_btn.setCursor(Qt.PointingHandCursor)
+        update_btn.setToolTip("Check server for Marko Polo Explorer updates")
+        update_btn.clicked.connect(self._check_updates)
+        ver_lay.addWidget(update_btn)
+        self._update_btn = update_btn
+
+        header_lay.addLayout(ver_lay)
+
+        layout.addWidget(header)
+        self._header = header
+
+        # ── Divider ──
+        divider = QFrame()
+        divider.setFixedHeight(1)
+        layout.addWidget(divider)
+        self._divider = divider
+
+        # ── Settings rows ──
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.NoFrame)
+
+        content = QWidget()
+        content_lay = QVBoxLayout(content)
+        content_lay.setContentsMargins(16, 12, 16, 16)
+        content_lay.setSpacing(4)
+
+        settings_items = [
+            ("dark_mode", "🌙", "Dark Mode", "Switch between dark and light themes"),
+            ("show_special_commands", "✨", "Show Special Commands", "Show the Special Commands button in the middle panel"),
+            ("sound_effects", "🔊", "Sound Effects", "Play UI sound effects for actions"),
+            ("robot_tips", "💬", "Robot Tips", "Show Marko Polo assistant & speech bubble tips in toolbar"),
+            ("compact_mode", "📐", "Compact Mode", "Reduce padding and spacing for smaller screens"),
+            ("auto_refresh", "🔄", "Auto-Refresh", "Automatically refresh panels when files change"),
+            ("gjuro_mode", "🎮", "Djuro Mode", "Browse with WASD: W/S = Up/Down, D or Enter = Open/Preview, A = Back"),
+        ]
+
+        for key, emoji, label, desc in settings_items:
+            row = self._make_toggle_row(key, emoji, label, desc)
+            content_lay.addWidget(row)
+
+        # Report a bug link row
+        bug_row = self._make_link_row(
+            "🐛",
+            "Report a Bug",
+            "Send feedback or report an issue at marko.com.hr/markopolo/#contact",
+            "https://www.marko.com.hr/markopolo/#contact"
+        )
+        content_lay.addWidget(bug_row)
+
+        content_lay.addStretch(1)
+        scroll.setWidget(content)
+        layout.addWidget(scroll, 1)
+        self._scroll = scroll
+        self._content = content
+
+        # ── Footer ──
+        footer = QFrame()
+        footer_lay = QHBoxLayout(footer)
+        footer_lay.setContentsMargins(16, 12, 16, 16)
+
+        footer_text = QLabel("Built with ❤️ by Marko")
+        footer_text.setStyleSheet("font-size: 10px; font-weight: 400;")
+        footer_lay.addWidget(footer_text)
+        self._footer_text = footer_text
+
+        footer_lay.addStretch()
+
+        close_btn = QPushButton("Done")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setFixedWidth(80)
+        close_btn.clicked.connect(self.accept)
+        footer_lay.addWidget(close_btn)
+        self._close_btn = close_btn
+
+        layout.addWidget(footer)
+        self._footer = footer
+
+    def _check_updates(self):
+        """Open update check dialog."""
+        main_win = self.parent()
+        if main_win and hasattr(main_win, "_open_update_popup_dialog"):
+            main_win._open_update_popup_dialog()
+        else:
+            dlg = UpdateCheckDialog(current_version=__version__, parent=self)
+            dlg.exec()
+
+    def _make_toggle_row(self, key, emoji, label, desc):
+        """Create a single settings toggle row with adequate height for two rows of text."""
+        row = QFrame()
+        row.setMinimumHeight(68)
+        row_lay = QHBoxLayout(row)
+        row_lay.setContentsMargins(14, 10, 14, 10)
+        row_lay.setSpacing(12)
+
+        # Emoji icon
+        emoji_lbl = QLabel(emoji)
+        emoji_lbl.setFixedWidth(30)
+        emoji_lbl.setStyleSheet("font-size: 20px;")
+        emoji_lbl.setAlignment(Qt.AlignCenter)
+        row_lay.addWidget(emoji_lbl)
+
+        # Label + description
+        text_lay = QVBoxLayout()
+        text_lay.setContentsMargins(0, 0, 0, 0)
+        text_lay.setSpacing(3)
+
+        name_lbl = QLabel(label)
+        name_lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
+        text_lay.addWidget(name_lbl)
+
+        desc_lbl = QLabel(desc)
+        desc_lbl.setStyleSheet("font-size: 11px; font-weight: 400;")
+        desc_lbl.setWordWrap(True)
+        text_lay.addWidget(desc_lbl)
+
+        row_lay.addLayout(text_lay, 1)
+
+        # Toggle switch
+        toggle = ToggleSwitch(checked=self._settings.get(key, False))
+        toggle.toggled.connect(lambda checked, k=key: self._on_toggle(k, checked))
+        row_lay.addWidget(toggle)
+
+        self._toggles[key] = toggle
+        row._name_lbl = name_lbl
+        row._desc_lbl = desc_lbl
+        row._emoji_lbl = emoji_lbl
+
+        if key == "gjuro_mode":
+            instructions = (
+                "🎮 Djuro Mode Controls:\n"
+                "• W: Move UP 1 file/item\n"
+                "• S: Move DOWN 1 file/item\n"
+                "• D or Enter: Open highlighted folder or preview .jpg/image file\n"
+                "• A: Move back in folder history\n"
+                "Works seamlessly in both Grid and List modes!"
+            )
+            row.setToolTip(instructions)
+            name_lbl.setToolTip(instructions)
+            desc_lbl.setToolTip(instructions)
+
+        return row
+
+    def _make_link_row(self, emoji, label, desc, url):
+        """Create a clickable link row that opens an external URL."""
+        row = QFrame()
+        row.setMinimumHeight(68)
+        row.setCursor(Qt.PointingHandCursor)
+        row_lay = QHBoxLayout(row)
+        row_lay.setContentsMargins(14, 10, 14, 10)
+        row_lay.setSpacing(12)
+
+        # Emoji icon
+        emoji_lbl = QLabel(emoji)
+        emoji_lbl.setFixedWidth(30)
+        emoji_lbl.setStyleSheet("font-size: 20px;")
+        emoji_lbl.setAlignment(Qt.AlignCenter)
+        row_lay.addWidget(emoji_lbl)
+
+        # Label + description
+        text_lay = QVBoxLayout()
+        text_lay.setContentsMargins(0, 0, 0, 0)
+        text_lay.setSpacing(3)
+
+        name_lbl = QLabel(label)
+        name_lbl.setStyleSheet("font-size: 13px; font-weight: 600;")
+        text_lay.addWidget(name_lbl)
+
+        desc_lbl = QLabel(desc)
+        desc_lbl.setStyleSheet("font-size: 11px; font-weight: 400;")
+        desc_lbl.setWordWrap(True)
+        text_lay.addWidget(desc_lbl)
+
+        row_lay.addLayout(text_lay, 1)
+
+        # Action button
+        btn = QPushButton("Open ↗")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl(url)))
+        row_lay.addWidget(btn)
+
+        row.mousePressEvent = lambda e: QDesktopServices.openUrl(QUrl(url))
+        row._name_lbl = name_lbl
+        row._desc_lbl = desc_lbl
+        row._emoji_lbl = emoji_lbl
+        row._action_btn = btn
+        return row
+
+    def _on_toggle(self, key, checked):
+        """Handle toggle changes with optional confirmation dialogs."""
+        if key == "show_special_commands" and checked:
+            confirm = SpecialCommandsConfirmDialog(parent=self)
+            if confirm.exec() != QDialog.Accepted:
+                # User selected No -> keep hidden & revert toggle
+                self._toggles[key].setChecked(False)
+                self._settings[key] = False
+                self.special_commands_changed.emit(False)
+                return
+            # User selected Yes -> turn on
+            self._settings[key] = True
+            self.special_commands_changed.emit(True)
+            return
+        elif key == "show_special_commands" and not checked:
+            self._settings[key] = False
+            self.special_commands_changed.emit(False)
+            return
+        elif key == "gjuro_mode":
+            self.gjuro_mode_changed.emit(checked)
+        elif key == "dark_mode":
+            new_mode = "dark" if checked else "light"
+            self.theme_changed.emit(new_mode)
+        elif key == "sound_effects":
+            self.sound_effects_changed.emit(checked)
+        elif key == "robot_tips":
+            self.robot_tips_changed.emit(checked)
+        elif key == "compact_mode":
+            self.compact_mode_changed.emit(checked)
+        elif key == "auto_refresh":
+            self.auto_refresh_changed.emit(checked)
+
+        self._settings[key] = checked
+
+    def get_settings(self):
+        """Return current settings dictionary."""
+        return dict(self._settings)
+
+    def _apply_theme(self):
+        """Apply theme-aware styling to the entire dialog."""
+        is_dark = (CURRENT_THEME_MODE == "dark")
+        bg = "#1e1e1e" if is_dark else "#f9fafb"
+        header_bg = "#18181a" if is_dark else "#f3f4f6"
+        row_bg = "#27272a" if is_dark else "#ffffff"
+        row_hover = "#323238" if is_dark else "#f1f5f9"
+        text_color = "#ffffff" if is_dark else "#111827"
+        subtext = "#a1a1aa" if is_dark else "#4b5563"
+        border = "#3f3f46" if is_dark else "#e5e7eb"
+        accent = "#0a84ff"
+        tooltip_bg = "#2c2c2e" if is_dark else "#ffffff"
+        tooltip_text = "#ffffff" if is_dark else "#111827"
+        tooltip_border = "#444446" if is_dark else "#cbd5e1"
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg};
+                color: {text_color};
+            }}
+            QLabel {{
+                color: {text_color};
+            }}
+            QToolTip {{
+                background-color: {tooltip_bg};
+                color: {tooltip_text};
+                border: 1px solid {tooltip_border};
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
+            }}
+        """)
+
+        self._header.setStyleSheet(f"""
+            QFrame {{
+                background: {header_bg};
+                border: none;
+                border-bottom: none;
+            }}
+        """)
+        self._title_label.setStyleSheet(f"font-size: 18px; font-weight: 700; color: {text_color}; padding: 0; margin: 0; background: transparent;")
+        self._ver_label.setStyleSheet(f"font-size: 12px; font-weight: 500; color: {subtext}; padding: 0; margin: 0; background: transparent;")
+
+        if hasattr(self, "_update_btn") and self._update_btn:
+            self._update_btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {BTN_BG};
+                    color: {text_color};
+                    border: 1px solid {border};
+                    border-radius: 6px;
+                    padding: 4px 12px;
+                    font-size: 11px;
+                    font-weight: 600;
+                }}
+                QPushButton:hover {{
+                    background: {BTN_HOVER};
+                    color: {accent};
+                    border-color: {accent};
+                }}
+            """)
+
+        self._divider.setStyleSheet(f"background: {border};")
+
+        self._scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background: {bg};
+                border: none;
+            }}
+        """)
+        self._content.setStyleSheet(f"background: {bg};")
+
+        # Style toggle and link rows
+        for child in self._content.findChildren(QFrame):
+            if hasattr(child, "_name_lbl"):
+                child.setStyleSheet(f"""
+                    QFrame {{
+                        background: {row_bg};
+                        border: 1px solid {border};
+                        border-radius: 10px;
+                        margin: 2px 0px;
+                    }}
+                    QFrame:hover {{
+                        background: {row_hover};
+                    }}
+                """)
+                child._name_lbl.setStyleSheet(f"font-size: 13px; font-weight: 600; color: {text_color} !important; border: none; background: transparent;")
+                child._desc_lbl.setStyleSheet(f"font-size: 11px; font-weight: 400; color: {subtext} !important; border: none; background: transparent;")
+                child._emoji_lbl.setStyleSheet(f"font-size: 20px; border: none; background: transparent;")
+                if hasattr(child, "_action_btn"):
+                    child._action_btn.setStyleSheet(f"""
+                        QPushButton {{
+                            background: {BTN_BG};
+                            color: {accent};
+                            border: 1px solid {border};
+                            border-radius: 6px;
+                            padding: 6px 12px;
+                            font-size: 11px;
+                            font-weight: 600;
+                        }}
+                        QPushButton:hover {{
+                            background: {accent};
+                            color: white;
+                            border-color: {accent};
+                        }}
+                    """)
+
+        self._footer.setStyleSheet(f"""
+            QFrame {{
+                background: {header_bg};
+                border-top: 1px solid {border};
+            }}
+        """)
+        self._footer_text.setStyleSheet(f"font-size: 10px; font-weight: 400; color: {subtext}; border: none; background: transparent;")
+        self._close_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {accent};
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 8px 16px;
+                font-size: 12px;
+                font-weight: 700;
+            }}
+            QPushButton:hover {{
+                background: {ACCENT2};
+            }}
+        """)
 
 
 # ── Main Window (ImageCaptureClone) ───────────────────────────────────────────
@@ -5684,6 +6415,11 @@ class ImageCaptureClone(QMainWindow):
         self.active_panel = "left"
         self.demo_mode = False
         self.simulated_files = []
+
+        # Install global application event filter for instant WASD / Space / Shortcut handling
+        app = QApplication.instance()
+        if app:
+            app.installEventFilter(self)
         
         # Pulse timer for header glow animation
         self.pulse_timer = QTimer(self)
@@ -5812,18 +6548,26 @@ class ImageCaptureClone(QMainWindow):
                 background:{INPUT_BG}; border:none; border-radius:3px; height:6px;
             }}
             QProgressBar::chunk {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #002b80, stop:1 #0055ff); border-radius:3px; }}
-            QMessageBox, QDialog, QInputDialog {{
-                background-color: #ffffff;
-                color: #000000;
+            QToolTip {{
+                background-color: {"#2c2c2e" if CURRENT_THEME_MODE == "dark" else "#ffffff"};
+                color: {"#ffffff" if CURRENT_THEME_MODE == "dark" else "#111827"};
+                border: 1px solid {"#444446" if CURRENT_THEME_MODE == "dark" else "#cbd5e1"};
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 12px;
             }}
-            QMessageBox QLabel, QDialog QLabel, QInputDialog QLabel {{
-                color: #000000;
+            QMessageBox, QInputDialog {{
+                background-color: {"#1e1e1e" if CURRENT_THEME_MODE == "dark" else "#ffffff"};
+                color: {"#ffffff" if CURRENT_THEME_MODE == "dark" else "#000000"};
+            }}
+            QMessageBox QLabel, QInputDialog QLabel {{
+                color: {"#ffffff" if CURRENT_THEME_MODE == "dark" else "#000000"};
                 font-weight: 600;
                 font-size: 13px;
             }}
             QInputDialog QLineEdit {{
-                background-color: #ffffff;
-                color: #000000;
+                background-color: {INPUT_BG};
+                color: {TEXT};
                 border: 1.5px solid #0a84ff;
                 border-radius: 6px;
                 padding: 5px 8px;
@@ -5881,10 +6625,10 @@ class ImageCaptureClone(QMainWindow):
         # 1. Left Side: Marko Polo Animated Assistant & Speech Bubble Cloud
         self.robot_widget = RobotMovieLabel()
         self.robot_widget.setToolTip("🤠 Marko Polo Assistant - Speech typewriter activates talking mouth animation!")
-        self.tb.addWidget(self.robot_widget)
+        self.robot_action = self.tb.addWidget(self.robot_widget)
 
         self.speech_bubble = SpeechBubbleCloud("Active Panel: Source (iPhone)")
-        self.tb.addWidget(self.speech_bubble)
+        self.speech_bubble_action = self.tb.addWidget(self.speech_bubble)
         self.status_msg = self.speech_bubble
 
         # Expanding Spacer to push View buttons to the center
@@ -5976,44 +6720,46 @@ class ImageCaptureClone(QMainWindow):
 
         self.tb.addSeparator()
 
-        # Update Check Button
-        self.update_btn = QPushButton("🔄 Update")
-        self.update_btn.setCursor(Qt.PointingHandCursor)
-        self.update_btn.setToolTip("Check server for Marko Polo Explorer updates")
-        self.update_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {BTN_BG};
-                color: {TEXT};
-                border: 1px solid {BORDER};
-                border-radius: 7px;
-                padding: 6px 14px;
-                font-size: 11px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background: {BTN_HOVER};
-                color: {ACCENT};
-                border-color: {ACCENT};
-            }}
-        """)
-        self.update_btn.clicked.connect(self._open_update_popup_dialog)
-        self.tb.addWidget(self.update_btn)
-
-        self.tb.addSeparator()
-
-        # Theme Toggle Button (right-aligned)
-        self.theme_btn = QPushButton("🌙 Dark")
+        # Theme Toggle Button (emoji-only, right-aligned)
+        theme_icon = "☀️" if CURRENT_THEME_MODE == "dark" else "🌙"
+        self.theme_btn = QPushButton(theme_icon)
         self.theme_btn.setCursor(Qt.PointingHandCursor)
         self.theme_btn.setToolTip("Switch between Dark and Light mode")
         self.theme_btn.setStyleSheet(f"""
             QPushButton {{ background:{BTN_BG}; color:{TEXT}; border:1px solid {BORDER};
-                          border-radius:7px; padding:6px 14px; font-size:11px; font-weight:600; }}
+                          border-radius:7px; padding:6px 10px; font-size:14px; font-weight:600; }}
             QPushButton:hover {{ background:{BTN_HOVER}; }}
         """)
         self.theme_btn.clicked.connect(self._toggle_theme)
         self.tb.addWidget(self.theme_btn)
 
+        # Settings Button
+        self.settings_btn = QPushButton("⚙️")
+        self.settings_btn.setCursor(Qt.PointingHandCursor)
+        self.settings_btn.setToolTip("Open Settings")
+        self.settings_btn.setStyleSheet(f"""
+            QPushButton {{ background:{BTN_BG}; color:{TEXT}; border:1px solid {BORDER};
+                          border-radius:7px; padding:6px 10px; font-size:14px; font-weight:600; }}
+            QPushButton:hover {{ background:{BTN_HOVER}; }}
+        """)
+        self.settings_btn.clicked.connect(self._open_settings)
+        self.tb.addWidget(self.settings_btn)
+
         self.tb.addSeparator()
+
+        # App settings state
+        self._app_settings = {
+            "dark_mode": CURRENT_THEME_MODE == "dark",
+            "show_special_commands": False,
+            "gjuro_mode": False,
+            "sound_effects": True,
+            "robot_tips": True,
+            "compact_mode": False,
+            "auto_refresh": False,
+        }
+        self._gjuro_mode_enabled = False
+        self._robot_tips_enabled = True
+        self._auto_refresh_enabled = False
 
         # Quit Button (always prominent in top-right corner)
         self.quit_btn = QPushButton("✕ Quit")
@@ -6119,6 +6865,7 @@ class ImageCaptureClone(QMainWindow):
         self.special_cmd_btn.setCursor(Qt.PointingHandCursor)
         self.special_cmd_btn.setToolTip("Click to show/hide Special action buttons")
         self.special_cmd_btn.clicked.connect(self._toggle_special_commands)
+        self.special_cmd_btn.hide()  # Hidden by default
 
         self.special_container = QFrame()
         self.special_container.hide()  # Collapsed by default on app launch
@@ -6214,8 +6961,8 @@ class ImageCaptureClone(QMainWindow):
         self.register_button_alt_text(self.toggle_left_btn, "📱 Source Panel: Click to show or hide the left Source panel (iPhone/Camera Roll). Use this to focus on just the Local panel when you don't need the phone view.")
         self.register_button_alt_text(self.refresh_btn, "🔄 Refresh: Click to rescan all connected USB devices and refresh file listings in both panels. Use after plugging in a new device or if files appear missing.")
         self.register_button_alt_text(self.toggle_right_btn, "📂 Local Panel: Click to show or hide the right Local destination folder panel. Use this to focus on just the Source panel.")
-        self.register_button_alt_text(self.update_btn, "🔄 Update Check: Click to check the server for new Marko Polo Explorer updates. If a new version is found, it will download and install automatically in the background.")
         self.register_button_alt_text(self.theme_btn, "🎨 Theme: Click to switch between Dark Mode and Light Mode. Your preference is saved automatically for next launch.")
+        self.register_button_alt_text(self.settings_btn, "⚙️ Settings: Open the Settings window to configure Dark Mode, Special Commands visibility, Sound Effects, Robot Tips, and more. Your preferences are saved automatically.")
         self.register_button_alt_text(self.quit_btn, "🚪 Quit: Click to save your current session (panel positions, folder paths, selections) and exit Marko Polo Explorer. Everything is restored on next launch!")
         self.register_button_alt_text(self.iphone_cmd_btn, "📱 iPhone Commands: Click to expand/collapse iPhone action buttons (Copy to Location, Compare & Copy). Use these to transfer files from your phone.")
         self.register_button_alt_text(self.btn_copy_loc, "📥 Copy to Location: HOW TO USE: 1) Select files in the iPhone/Source panel. 2) Navigate to your desired destination in the Local panel. 3) Click 'Copy to Location' — selected files will be copied to the local folder.")
@@ -6650,16 +7397,21 @@ class ImageCaptureClone(QMainWindow):
             self._update_middle_nav_buttons()
 
     def _go_back_active(self):
-        if self.active_panel == "left":
-            self.iphone_panel._go_back()
-        else:
-            self.local_panel._go_back()
+        active_panel = self.iphone_panel if self.active_panel == "left" else self.local_panel
+        if hasattr(active_panel, "history_index") and active_panel.history_index > 0:
+            active_panel._go_back()
+        elif hasattr(active_panel, "_go_up"):
+            active_panel._go_up()
 
     def _go_forward_active(self):
-        if self.active_panel == "left":
-            self.iphone_panel._go_forward()
-        else:
-            self.local_panel._go_forward()
+        active_panel = self.iphone_panel if self.active_panel == "left" else self.local_panel
+        if hasattr(active_panel, "open_highlighted_item_or_go_forward"):
+            active_panel.open_highlighted_item_or_go_forward()
+        elif hasattr(active_panel, "open_selected_folder_or_go_forward"):
+            active_panel.open_selected_folder_or_go_forward()
+        elif hasattr(active_panel, "history_index") and hasattr(active_panel, "history") and active_panel.history_index < len(active_panel.history) - 1:
+            active_panel._go_forward()
+        self._update_middle_nav_buttons()
 
     def _update_middle_nav_buttons(self):
         if self.active_panel == "left":
@@ -6763,12 +7515,87 @@ class ImageCaptureClone(QMainWindow):
         """Switch between dark and light themes."""
         new_mode = "light" if CURRENT_THEME_MODE == "dark" else "dark"
         set_theme(new_mode)
-        # Update button label
-        if new_mode == "dark":
-            self.theme_btn.setText("☀️ Light")
-        else:
-            self.theme_btn.setText("🌙 Dark")
+        # Update button emoji (no text label)
+        self.theme_btn.setText("☀️" if new_mode == "dark" else "🌙")
+        # Sync settings state
+        if hasattr(self, '_app_settings'):
+            self._app_settings['dark_mode'] = (new_mode == "dark")
         self._restyle_all()
+
+    def _open_settings(self):
+        """Open the Settings dialog."""
+        # Sync current state into settings dict
+        self._app_settings['dark_mode'] = (CURRENT_THEME_MODE == "dark")
+        self._app_settings['show_special_commands'] = self.special_cmd_btn.isVisible()
+        self._app_settings['gjuro_mode'] = getattr(self, '_gjuro_mode_enabled', False)
+        self._app_settings['robot_tips'] = getattr(self, '_robot_tips_enabled', True)
+        self._app_settings['auto_refresh'] = getattr(self, '_auto_refresh_enabled', False)
+
+        dlg = SettingsDialog(parent=self, settings=dict(self._app_settings))
+        dlg.theme_changed.connect(self._on_settings_theme_changed)
+        dlg.special_commands_changed.connect(self._on_settings_special_commands)
+        dlg.gjuro_mode_changed.connect(self._on_settings_gjuro_mode)
+        dlg.sound_effects_changed.connect(self._on_settings_sound_effects)
+        dlg.robot_tips_changed.connect(self._on_settings_robot_tips)
+        dlg.compact_mode_changed.connect(self._on_settings_compact_mode)
+        dlg.auto_refresh_changed.connect(self._on_settings_auto_refresh)
+        dlg.exec()
+        # Update settings from dialog
+        self._app_settings.update(dlg.get_settings())
+
+    def _on_settings_theme_changed(self, mode):
+        """Handle theme change from Settings dialog."""
+        if mode != CURRENT_THEME_MODE:
+            set_theme(mode)
+            self.theme_btn.setText("☀️" if mode == "dark" else "🌙")
+            self._app_settings['dark_mode'] = (mode == "dark")
+            self._restyle_all()
+
+    def _on_settings_special_commands(self, visible):
+        """Show or hide Special Commands button based on settings toggle."""
+        self._app_settings['show_special_commands'] = visible
+        if visible:
+            self.special_cmd_btn.show()
+        else:
+            self.special_cmd_btn.hide()
+            self.special_container.hide()
+            self.special_cmd_btn.setText("✨ Special Commands ▼")
+
+    def _on_settings_gjuro_mode(self, enabled):
+        """Toggle Gjuro Mode (WASD keyboard navigation)."""
+        self._app_settings['gjuro_mode'] = enabled
+        self._gjuro_mode_enabled = enabled
+
+    def _on_settings_sound_effects(self, enabled):
+        """Toggle sound effects."""
+        self._app_settings['sound_effects'] = enabled
+
+    def _on_settings_robot_tips(self, enabled):
+        """Toggle robot assistant and speech bubble visibility in the toolbar."""
+        self._app_settings['robot_tips'] = enabled
+        self._robot_tips_enabled = enabled
+        if hasattr(self, "robot_action") and self.robot_action:
+            self.robot_action.setVisible(enabled)
+        if hasattr(self, "speech_bubble_action") and self.speech_bubble_action:
+            self.speech_bubble_action.setVisible(enabled)
+        if hasattr(self, "robot_widget") and self.robot_widget:
+            self.robot_widget.setVisible(enabled)
+            if not enabled:
+                self.robot_widget.stop_animation()
+        if hasattr(self, "speech_bubble") and self.speech_bubble:
+            self.speech_bubble.setVisible(enabled)
+            if not enabled:
+                self.speech_bubble.type_timer.stop()
+
+    def _on_settings_compact_mode(self, enabled):
+        """Toggle compact mode (reduced padding/spacing)."""
+        self._app_settings['compact_mode'] = enabled
+        # Future: Adjust padding throughout the UI
+
+    def _on_settings_auto_refresh(self, enabled):
+        """Toggle auto-refresh of file panels."""
+        self._app_settings['auto_refresh'] = enabled
+        self._auto_refresh_enabled = enabled
 
     def _restyle_all(self):
         """Re-apply all styles throughout the app after a theme change."""
@@ -6782,25 +7609,14 @@ class ImageCaptureClone(QMainWindow):
         """)
 
         # Toolbar buttons
-        self.update_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {BTN_BG};
-                color: {TEXT};
-                border: 1px solid {BORDER};
-                border-radius: 7px;
-                padding: 6px 14px;
-                font-size: 11px;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background: {BTN_HOVER};
-                color: {ACCENT};
-                border-color: {ACCENT};
-            }}
-        """)
         self.theme_btn.setStyleSheet(f"""
             QPushButton {{ background:{BTN_BG}; color:{TEXT}; border:1px solid {BORDER};
-                          border-radius:7px; padding:6px 14px; font-size:11px; font-weight:600; }}
+                          border-radius:7px; padding:6px 10px; font-size:14px; font-weight:600; }}
+            QPushButton:hover {{ background:{BTN_HOVER}; }}
+        """)
+        self.settings_btn.setStyleSheet(f"""
+            QPushButton {{ background:{BTN_BG}; color:{TEXT}; border:1px solid {BORDER};
+                          border-radius:7px; padding:6px 10px; font-size:14px; font-weight:600; }}
             QPushButton:hover {{ background:{BTN_HOVER}; }}
         """)
         self.quit_btn.setStyleSheet(f"""
@@ -6855,9 +7671,21 @@ class ImageCaptureClone(QMainWindow):
             self.local_panel.set_focused(True)
 
     def _save_session(self):
-        """Save current workspace setup and session variables to JSON file."""
+        """Save current workspace setup, session variables, and settings toggles to JSON file."""
         try:
             session_file = os.path.join(script_dir, "marko_polo_session.json")
+
+            # Ensure latest settings state is fully synced before saving
+            if not hasattr(self, '_app_settings'):
+                self._app_settings = {}
+            self._app_settings['dark_mode'] = (CURRENT_THEME_MODE == "dark")
+            self._app_settings['show_special_commands'] = bool(getattr(self.special_cmd_btn, "isVisible", lambda: False)())
+            self._app_settings['gjuro_mode'] = bool(getattr(self, '_gjuro_mode_enabled', False))
+            self._app_settings['sound_effects'] = bool(self._app_settings.get('sound_effects', True))
+            self._app_settings['robot_tips'] = bool(getattr(self, '_robot_tips_enabled', True))
+            self._app_settings['compact_mode'] = bool(self._app_settings.get('compact_mode', False))
+            self._app_settings['auto_refresh'] = bool(getattr(self, '_auto_refresh_enabled', False))
+
             data = {
                 "theme": CURRENT_THEME_MODE,
                 "left_path": self.iphone_panel.current_path if getattr(self.iphone_panel, "mode", "local") == "local" else "",
@@ -6871,7 +7699,8 @@ class ImageCaptureClone(QMainWindow):
                 "right_visible": self._right_visible,
                 "icon_size": self.slider.value(),
                 "splitter_sizes": self.splitter.sizes(),
-                "geometry": [self.x(), self.y(), self.width(), self.height()]
+                "geometry": [self.x(), self.y(), self.width(), self.height()],
+                "app_settings": dict(self._app_settings)
             }
             with open(session_file, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
@@ -6891,11 +7720,39 @@ class ImageCaptureClone(QMainWindow):
             theme = data.get("theme", "light")
             if theme != CURRENT_THEME_MODE:
                 set_theme(theme)
-                if theme == "dark":
-                    self.theme_btn.setText("☀️ Light")
-                else:
-                    self.theme_btn.setText("🌙 Dark")
+                self.theme_btn.setText("☀️" if theme == "dark" else "🌙")
                 self._restyle_all()
+
+            # 1b. App settings
+            saved_settings = data.get("app_settings", {})
+            if saved_settings and hasattr(self, '_app_settings'):
+                self._app_settings.update(saved_settings)
+                # Sync dark mode flag with actual theme
+                self._app_settings['dark_mode'] = (CURRENT_THEME_MODE == "dark")
+                # Apply special commands visibility (default OFF)
+                if not self._app_settings.get('show_special_commands', False):
+                    self.special_cmd_btn.hide()
+                    self.special_container.hide()
+                else:
+                    self.special_cmd_btn.show()
+                # Apply Gjuro mode setting
+                self._gjuro_mode_enabled = self._app_settings.get('gjuro_mode', False)
+                # Apply robot tips setting & update widget visibility
+                self._robot_tips_enabled = self._app_settings.get('robot_tips', True)
+                if hasattr(self, "robot_action") and self.robot_action:
+                    self.robot_action.setVisible(self._robot_tips_enabled)
+                if hasattr(self, "speech_bubble_action") and self.speech_bubble_action:
+                    self.speech_bubble_action.setVisible(self._robot_tips_enabled)
+                if hasattr(self, "robot_widget") and self.robot_widget:
+                    self.robot_widget.setVisible(self._robot_tips_enabled)
+                    if not self._robot_tips_enabled:
+                        self.robot_widget.stop_animation()
+                if hasattr(self, "speech_bubble") and self.speech_bubble:
+                    self.speech_bubble.setVisible(self._robot_tips_enabled)
+                    if not self._robot_tips_enabled:
+                        self.speech_bubble.type_timer.stop()
+                # Apply auto-refresh setting
+                self._auto_refresh_enabled = self._app_settings.get('auto_refresh', False)
 
             # 2. Icon size slider
             icon_size = data.get("icon_size")
@@ -6974,21 +7831,9 @@ class ImageCaptureClone(QMainWindow):
             pass
 
         try:
-            w = e.size().width() if (e and hasattr(e, "size")) else self.width()
-            if hasattr(self, "update_btn") and self.update_btn:
-                if w < 1100:
-                    self.update_btn.setText("🔄")
-                    self.update_btn.setToolTip("Update - Click to check server for Marko Polo Explorer updates")
-                else:
-                    self.update_btn.setText("🔄 Update")
-                    self.update_btn.setToolTip("Check server for Marko Polo Explorer updates")
-
             if hasattr(self, "theme_btn") and self.theme_btn:
                 mode_icon = "☀️" if CURRENT_THEME_MODE == "dark" else "🌙"
-                if w < 1100:
-                    self.theme_btn.setText(mode_icon)
-                else:
-                    self.theme_btn.setText(f"{mode_icon} Light" if CURRENT_THEME_MODE == "dark" else f"{mode_icon} Dark")
+                self.theme_btn.setText(mode_icon)
 
             if hasattr(self, "splitter") and self.splitter is not None:
                 self._update_splitter_sizes()
@@ -7025,6 +7870,29 @@ class ImageCaptureClone(QMainWindow):
             e.accept()
             return
 
+        # Gjuro Mode WASD navigation: W/S = up/down items, A = back folder, D = forward folder
+        if getattr(self, '_gjuro_mode_enabled', False):
+            active_p = self.iphone_panel if self.active_panel == "left" else self.local_panel
+            if e.key() == Qt.Key_W:
+                active_p.select_prev_item()
+                e.accept()
+                return
+
+            if e.key() == Qt.Key_S:
+                active_p.select_next_item()
+                e.accept()
+                return
+
+            if e.key() == Qt.Key_A:
+                self._go_back_active()
+                e.accept()
+                return
+
+            if e.key() in (Qt.Key_D, Qt.Key_Return, Qt.Key_Enter):
+                self._go_forward_active()
+                e.accept()
+                return
+
         if e.key() == Qt.Key_Tab:
             self._toggle_active_panel()
             e.accept()
@@ -7043,28 +7911,57 @@ class ImageCaptureClone(QMainWindow):
 
         if event.type() == QEvent.Enter:
             alt_text = watched.property("robot_alt_text") if hasattr(watched, "property") else None
-            if alt_text:
-                if hasattr(self, "speech_bubble"):
+            if alt_text and getattr(self, '_robot_tips_enabled', True):
+                if hasattr(self, "speech_bubble") and self.speech_bubble.isVisible():
                     self.speech_bubble.setText(alt_text)
                     self.speech_bubble.setToolTip(alt_text)
-                if hasattr(self, "robot_widget"):
+                if hasattr(self, "robot_widget") and self.robot_widget.isVisible():
                     self.robot_widget.trigger_blink()
         elif event.type() == QEvent.Leave:
             if hasattr(watched, "property") and watched.property("robot_alt_text"):
-                self._update_active_status_text()
+                if getattr(self, '_robot_tips_enabled', True):
+                    self._update_active_status_text()
         elif event.type() in (QEvent.MouseButtonPress, QEvent.MouseButtonRelease):
-            if hasattr(self, "robot_widget"):
+            if hasattr(self, "robot_widget") and getattr(self, '_robot_tips_enabled', True) and self.robot_widget.isVisible():
                 self.robot_widget.trigger_blink()
 
         if event.type() == QEvent.KeyPress:
-            if event.key() == Qt.Key_Space:
-                focused_widget = QApplication.focusWidget()
-                if not isinstance(focused_widget, QLineEdit):
-                    if watched == getattr(self.iphone_panel, "table", None):
-                        self._preview_active_selection("left")
+            if QApplication.activeModalWidget() is not None:
+                return super().eventFilter(watched, event)
+
+            focused_widget = QApplication.focusWidget()
+            if not isinstance(focused_widget, (QLineEdit, QTextEdit)):
+                # If focus is inside local_panel or iphone_panel, ensure active_panel matches
+                if focused_widget:
+                    if hasattr(self, "iphone_panel") and self.iphone_panel.isAncestorOf(focused_widget):
+                        self._set_active_panel("left")
+                    elif hasattr(self, "local_panel") and self.local_panel.isAncestorOf(focused_widget):
+                        self._set_active_panel("right")
+
+                # Spacebar preview
+                if event.key() == Qt.Key_Space:
+                    self._preview_active_selection(self.active_panel)
+                    return True
+
+                # Tab to switch active panel
+                if event.key() == Qt.Key_Tab:
+                    self._toggle_active_panel()
+                    return True
+
+                # Gjuro / Djuro Mode WASD navigation (works in both list & grid modes)
+                if getattr(self, '_gjuro_mode_enabled', False):
+                    active_p = self.iphone_panel if self.active_panel == "left" else self.local_panel
+                    if event.key() == Qt.Key_W:
+                        active_p.select_prev_item()
                         return True
-                    elif watched == getattr(self.local_panel, "table", None):
-                        self._preview_active_selection("right")
+                    elif event.key() == Qt.Key_S:
+                        active_p.select_next_item()
+                        return True
+                    elif event.key() == Qt.Key_A:
+                        self._go_back_active()
+                        return True
+                    elif event.key() in (Qt.Key_D, Qt.Key_Return, Qt.Key_Enter):
+                        self._go_forward_active()
                         return True
         return super().eventFilter(watched, event)
 
@@ -8729,7 +9626,7 @@ class ImageCaptureClone(QMainWindow):
         box = QMessageBox(self)
         box.setWindowTitle(f"Quit Marko Polo Explorer v{__version__}")
         box.setText(f"Are you sure you want to quit Marko Polo Explorer v{__version__}?")
-        box.setInformativeText("💾 Save & Quit: Saves current paths & layout state for next launch.\n⚡ Quit Without Saving: Exits without saving session state.")
+        box.setInformativeText("💾 Save & Quit: Saves current paths, layout, and settings options for next launch.\n⚡ Quit Without Saving: Exits without saving session state.")
         
         markopolo_path = os.path.join(script_dir, "markopolo.png")
         if os.path.exists(markopolo_path):
