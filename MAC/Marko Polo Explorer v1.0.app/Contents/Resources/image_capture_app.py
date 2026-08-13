@@ -555,7 +555,14 @@ $files | ConvertTo-Json -Compress
 """
         try:
             cmd = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_script]
-            res = subprocess.run(cmd, capture_output=True, text=True, timeout=40)
+            kwargs = {"capture_output": True, "text": True, "timeout": 40}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = 0x08000000
+                si = subprocess.STARTUPINFO()
+                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                si.wShowWindow = 0
+                kwargs["startupinfo"] = si
+            res = subprocess.run(cmd, **kwargs)
             stdout = res.stdout.strip()
             if not stdout or stdout == "[]":
                 self.scan_complete.emit("", [])
@@ -8709,7 +8716,14 @@ if ($res) {{ exit 0 }} else {{ exit 1 }}
 """
         try:
             cmd = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", ps_script]
-            subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            kwargs = {"capture_output": True, "text": True, "timeout": 60}
+            if sys.platform == "win32":
+                kwargs["creationflags"] = 0x08000000
+                si = subprocess.STARTUPINFO()
+                si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+                si.wShowWindow = 0
+                kwargs["startupinfo"] = si
+            subprocess.run(cmd, **kwargs)
         except Exception as e:
             print(f"Error copying WPD file: {e}")
         self._on_file_downloaded(file_obj.name(), None)
